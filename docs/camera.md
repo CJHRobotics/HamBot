@@ -40,7 +40,7 @@ cam = Camera(fps=5, camera_index=0, resolution=(640, 480))
 * `get_image() -> np.ndarray | None`
   Returns the latest RGB frame (shape `(H, W, 3)`), or `None` if not yet available.
 
-* `set_landmark_colors(colors, tolerance=0.05)`
+* `set_target_colors(colors, tolerance=0.05)`
   Set one or more target colors for detection.
 
   * `colors`: `(R, G, B)` tuple or list of tuples (0–255 per channel)
@@ -94,7 +94,7 @@ Landmark(center=(x, y), width=w, height=h)
 from robot_systems.camera import Camera
 
 cam = Camera()
-cam.set_landmark_colors([(255, 0, 0)], tolerance=0.08)  # detect red
+cam.set_target_colors([(255, 0, 0)], tolerance=0.08)  # detect red
 landmarks = cam.find_landmarks()
 
 for lm in landmarks:
@@ -129,7 +129,7 @@ cam.stop_camera()
 from robot_systems.camera import Camera
 
 cam = Camera(fps=5)
-cam.set_landmark_colors([(0, 255, 0)], tolerance=0.08)  # detect green ±8%
+cam.set_target_colors([(0, 255, 0)], tolerance=0.08)  # detect green ±8%
 landmarks = cam.find_landmarks(area_threshold=400)
 print("Detected:", landmarks)
 cam.stop_camera()
@@ -143,7 +143,7 @@ from robot_systems.camera import Camera
 colors = [(255, 0, 0), (0, 255, 0), (0, 0, 255)]
 
 cam = Camera()
-cam.set_landmark_colors(colors, tolerance=0.06)
+cam.set_target_colors(colors, tolerance=0.06)
 for lm in cam.find_landmarks():
     print(lm)
 cam.stop_camera()
