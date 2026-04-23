@@ -15,15 +15,13 @@ class Lidar:
             port_name (str): The port name where the Lidar is connected.
             timeout (int): The timeout for the Lidar connection.
         """
-        self.lidar = RPLidar(None, port_name, timeout=timeout)
+        self.lidar = RPLidar(None, port_name)
         self.lidar.start_motor()
         self.scan_data = [self.INVALID_READING] * 360  # Initialize scan data with 360 degrees
         self.lock = threading.Lock()
         self.running = True
         self.scan_thread = threading.Thread(target=self._scan)
         self.scan_thread.start()
-        self.frequency = frequency
-        self.lidar_sleep = 1/self.frequency
 
 
     def _scan(self):
@@ -44,16 +42,12 @@ class Lidar:
                                 self.scan_data[min(359, floor(adjusted_angle))] = -1
                     if not self.running:
                         break
-                time.sleep(self.lidar_sleep)  # Short delay to prevent high CPU usage
             except RPLidarException as e:
                 print(f"RPLidar exception occurred: {e}")
             except Exception as e:
                 print(f"An unexpected error occurred: {e}")
 
 
-    def set_lidar_frequency(self,frequency):
-        self.frequency = frequency
-        self.lidar_sleep = 1/self.frequency
     def get_current_scan(self):
         """
         Get the current scan data as a list of 360 distance measurements.
@@ -61,8 +55,7 @@ class Lidar:
         Returns:
             list: A copy of the current scan data.
         """
-        with self.lock:
-            return self.scan_data.copy()
+        return self.scan_data.copy()
 
     def stop_lidar(self):
         """
