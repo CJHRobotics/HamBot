@@ -31,14 +31,13 @@ class Lidar:
         while self.running:
             try:
                 for scan in self.lidar.iter_scans():
-                    with self.lock:
-                        for _, angle, distance in scan:
-                            # Convert angle to match the required orientation (0° at back, 180° at front)
-                            adjusted_angle = (angle + 180) % 360
-                            if distance > 0:  # Only update if the distance is valid
-                                self.scan_data[min(359, floor(adjusted_angle))] = distance
-                            else:
-                                self.scan_data[min(359, floor(adjusted_angle))] = -1
+                    for _, angle, distance in scan:
+                        # Convert angle to match the required orientation (0° at back, 180° at front)
+                        adjusted_angle = (angle + 180) % 360
+                        if distance > 0:  # Only update if the distance is valid
+                            self.scan_data[min(359, floor(adjusted_angle))] = distance
+                        else:
+                            self.scan_data[min(359, floor(adjusted_angle))] = -1
                     if not self.running:
                         break
             except RPLidarException as e:
