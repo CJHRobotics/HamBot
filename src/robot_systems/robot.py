@@ -9,6 +9,17 @@ class HamBot:
     DRIVE_4WD = '4WD'
 
     def __init__(self, drivetrain='2WD', lidar_enabled=True, camera_enabled=True):
+        """Initialize HamBot with the specified drivetrain and optional peripherals.
+
+        Args:
+            drivetrain (str): Drivetrain type. Use HamBot.DRIVE_2WD or HamBot.DRIVE_4WD.
+                              Defaults to '2WD'.
+            lidar_enabled (bool): Whether to initialize the Lidar sensor. Defaults to True.
+            camera_enabled (bool): Whether to initialize the camera. Defaults to True.
+
+        Raises:
+            ValueError: If drivetrain is not DRIVE_2WD or DRIVE_4WD.
+        """
         if drivetrain not in (self.DRIVE_2WD, self.DRIVE_4WD):
             raise ValueError(f"Invalid drivetrain '{drivetrain}'. Must be '{self.DRIVE_2WD}' or '{self.DRIVE_4WD}'.")
 
@@ -63,19 +74,17 @@ class HamBot:
 
         signal.signal(signal.SIGINT, self.shutdown)
 
+    # -------------------------------------------------------------------------
+    # Sensors
+    # -------------------------------------------------------------------------
+
     def get_range_image(self):
-        """
-        Retrieve the current range image from the Lidar.
+        """Return the current 360° lidar scan as a list of distance measurements.
 
         Returns:
-            list: A list of 360 distance measurements corresponding to each degree,
-                  where 0° is towards the back of the Lidar, 90° is to the left,
-                  180° is to the front, and 270° is to the right.
-                  Returns -1 if the Lidar is not enabled.
-
-        This function checks if the Lidar is enabled and then retrieves the latest
-        scan data, which represents the distance measurements at each degree of rotation.
-        If the Lidar is not enabled, it prints an error message and returns -1.
+            list: 360 distance values (mm) indexed by degree, where 180° is the
+                  front of the robot and 0° is the rear. Returns -1 if the lidar
+                  is not enabled.
         """
         if self.lidar is not None:
             return self.lidar.get_current_scan()
@@ -84,11 +93,42 @@ class HamBot:
             return -1
 
     def get_heading(self, fresh_within=0.5, blocking=False, wait_timeout=0.3):
+        """Return the robot's current heading from the IMU.
+
+        Args:
+            fresh_within (float): Maximum age in seconds for an acceptable reading.
+                                  Defaults to 0.5.
+            blocking (bool): If True, wait for a fresh reading. Defaults to False.
+            wait_timeout (float): Maximum time in seconds to wait when blocking.
+                                  Defaults to 0.3.
+
+        Returns:
+            float: Heading in degrees relative to East (0°–360°).
+        """
         return self.imu.get_heading(fresh_within=fresh_within,
                                     blocking=blocking,
                                     wait_timeout=wait_timeout)
 
+    # -------------------------------------------------------------------------
+    # Encoder tracking (internal)
+    # -------------------------------------------------------------------------
+
     def _read_motor_delta(self, motor, last_position, invert=False):
+        """Read a motor's position and return the displacement since last_position.
+
+        Handles the 360°→0° wrap-around of the BuildHat position sensor.
+
+        Args:
+            motor (Motor): The BuildHat Motor instance to read.
+            last_position (float): The position recorded on the previous update.
+            invert (bool): If True, negate the delta to correct for mounting polarity.
+                           Defaults to False.
+
+        Returns:
+            tuple: (current_position, delta_radians) where current_position is the
+                   raw reading to store for the next call and delta_radians is the
+                   signed angular displacement in radians.
+        """
         current = motor.get_position()
         delta = current - last_position
         if delta > 180:
@@ -98,6 +138,12 @@ class HamBot:
         return current, -math.radians(delta) if invert else math.radians(delta)
 
     def update_motor_positions(self):
+        """Continuously update accumulated encoder radians for all drive motors.
+
+        Runs in a background thread at 20 Hz. Polls each motor's position,
+        computes the delta since the last reading, and accumulates it into the
+        corresponding *_motor_radians attribute.
+        """
         while not self.stop_thread:
             if self.drivetrain == self.DRIVE_2WD:
                 self.last_left_position, delta = self._read_motor_delta(
@@ -127,6 +173,10 @@ class HamBot:
             time.sleep(0.05)
 
     def reset_encoders(self):
+        """Reset all encoder accumulators to zero and re-snapshot current positions.
+
+        For 2WD resets left and right. For 4WD resets all four wheels individually.
+        """
         if self.drivetrain == self.DRIVE_2WD:
             self.left_motor_radians = 0.0
             self.right_motor_radians = 0.0
@@ -142,7 +192,19 @@ class HamBot:
             self.last_front_right_position = self.front_right_motor.get_position()
             self.last_rear_right_position = self.rear_right_motor.get_position()
 
+    # -------------------------------------------------------------------------
+    # Speed validation
+    # -------------------------------------------------------------------------
+
     def check_speed(self, input_speed):
+        """Clamp a speed value to the valid range [-MAX_RPM, MAX_RPM].
+
+        Args:
+            input_speed (float): Requested speed in RPM.
+
+        Returns:
+            float: The clamped speed value.
+        """
         if -self.MAX_RPM <= input_speed <= self.MAX_RPM:
             return input_speed
         elif input_speed < -self.MAX_RPM:
@@ -152,7 +214,19 @@ class HamBot:
             print(f"Speed must be between -{self.MAX_RPM} and {self.MAX_RPM} revolutions per minute.")
             return self.MAX_RPM
 
+    # -------------------------------------------------------------------------
+    # Left-side motor control (2WD and 4WD)
+    # -------------------------------------------------------------------------
+
     def set_left_motor_speed(self, speed_rpm):
+        """Set the left side to run continuously at the given speed.
+
+        For 4WD, both front-left and rear-left motors are set simultaneously.
+
+        Args:
+            speed_rpm (float): Desired speed in RPM. Positive = forward,
+                               negative = reverse.
+        """
         speed_rpm *= -1
         speed_rpm = self.check_speed(speed_rpm)
         if self.drivetrain == self.DRIVE_2WD:
@@ -162,6 +236,17 @@ class HamBot:
             self.rear_left_motor.start(speed=speed_rpm)
 
     def run_left_motor_for_seconds(self, seconds, speed=75, blocking=True):
+        """Run the left side for a fixed duration.
+
+        For 4WD, front-left runs non-blocking and rear-left respects the
+        blocking parameter so both motors run in tandem.
+
+        Args:
+            seconds (float): Duration to run in seconds.
+            speed (float): Speed in RPM. Defaults to 75.
+            blocking (bool): If True, the call blocks until the motors finish.
+                             Defaults to True.
+        """
         speed *= -1
         speed = self.check_speed(speed)
         if self.drivetrain == self.DRIVE_2WD:
@@ -171,6 +256,17 @@ class HamBot:
             self.rear_left_motor.run_for_seconds(seconds, speed=speed, blocking=blocking)
 
     def run_left_motor_for_rotations(self, rotations, speed=75, blocking=True):
+        """Run the left side for a fixed number of rotations.
+
+        For 4WD, front-left runs non-blocking and rear-left respects the
+        blocking parameter so both motors run in tandem.
+
+        Args:
+            rotations (float): Number of rotations to perform.
+            speed (float): Speed in RPM. Defaults to 75.
+            blocking (bool): If True, the call blocks until the motors finish.
+                             Defaults to True.
+        """
         speed *= -1
         speed = self.check_speed(speed)
         if self.drivetrain == self.DRIVE_2WD:
@@ -180,6 +276,17 @@ class HamBot:
             self.rear_left_motor.run_for_rotations(rotations, speed=speed, blocking=blocking)
 
     def run_left_motor_to_position(self, position, speed=100, blocking=True):
+        """Move the left side to an absolute position.
+
+        For 4WD, front-left runs non-blocking and rear-left respects the
+        blocking parameter so both motors run in tandem.
+
+        Args:
+            position (float): Target position in degrees.
+            speed (float): Speed in RPM. Defaults to 100.
+            blocking (bool): If True, the call blocks until the motors finish.
+                             Defaults to True.
+        """
         speed *= -1
         speed = self.check_speed(speed)
         if self.drivetrain == self.DRIVE_2WD:
@@ -189,13 +296,29 @@ class HamBot:
             self.rear_left_motor.run_to_position(position, speed=speed, blocking=blocking)
 
     def stop_left_motor(self):
+        """Stop the left side motor(s).
+
+        For 4WD, stops both front-left and rear-left motors.
+        """
         if self.drivetrain == self.DRIVE_2WD:
             self.left_motor.stop()
         else:
             self.front_left_motor.stop()
             self.rear_left_motor.stop()
 
+    # -------------------------------------------------------------------------
+    # Right-side motor control (2WD and 4WD)
+    # -------------------------------------------------------------------------
+
     def set_right_motor_speed(self, speed_rpm):
+        """Set the right side to run continuously at the given speed.
+
+        For 4WD, both front-right and rear-right motors are set simultaneously.
+
+        Args:
+            speed_rpm (float): Desired speed in RPM. Positive = forward,
+                               negative = reverse.
+        """
         speed_rpm = self.check_speed(speed_rpm)
         if self.drivetrain == self.DRIVE_2WD:
             self.right_motor.start(speed=speed_rpm)
@@ -204,6 +327,17 @@ class HamBot:
             self.rear_right_motor.start(speed=speed_rpm)
 
     def run_right_motor_for_seconds(self, seconds, speed=75, blocking=True):
+        """Run the right side for a fixed duration.
+
+        For 4WD, front-right runs non-blocking and rear-right respects the
+        blocking parameter so both motors run in tandem.
+
+        Args:
+            seconds (float): Duration to run in seconds.
+            speed (float): Speed in RPM. Defaults to 75.
+            blocking (bool): If True, the call blocks until the motors finish.
+                             Defaults to True.
+        """
         speed = self.check_speed(speed)
         if self.drivetrain == self.DRIVE_2WD:
             self.right_motor.run_for_seconds(seconds, speed=speed, blocking=blocking)
@@ -212,6 +346,17 @@ class HamBot:
             self.rear_right_motor.run_for_seconds(seconds, speed=speed, blocking=blocking)
 
     def run_right_motor_for_rotations(self, rotations, speed=75, blocking=True):
+        """Run the right side for a fixed number of rotations.
+
+        For 4WD, front-right runs non-blocking and rear-right respects the
+        blocking parameter so both motors run in tandem.
+
+        Args:
+            rotations (float): Number of rotations to perform.
+            speed (float): Speed in RPM. Defaults to 75.
+            blocking (bool): If True, the call blocks until the motors finish.
+                             Defaults to True.
+        """
         speed = self.check_speed(speed)
         if self.drivetrain == self.DRIVE_2WD:
             self.right_motor.run_for_rotations(rotations, speed=speed, blocking=blocking)
@@ -220,6 +365,17 @@ class HamBot:
             self.rear_right_motor.run_for_rotations(rotations, speed=speed, blocking=blocking)
 
     def run_right_motor_to_position(self, position, speed=75, blocking=True):
+        """Move the right side to an absolute position.
+
+        For 4WD, front-right runs non-blocking and rear-right respects the
+        blocking parameter so both motors run in tandem.
+
+        Args:
+            position (float): Target position in degrees.
+            speed (float): Speed in RPM. Defaults to 75.
+            blocking (bool): If True, the call blocks until the motors finish.
+                             Defaults to True.
+        """
         speed = self.check_speed(speed)
         if self.drivetrain == self.DRIVE_2WD:
             self.right_motor.run_to_position(position, speed=speed, blocking=blocking)
@@ -228,15 +384,27 @@ class HamBot:
             self.rear_right_motor.run_to_position(position, speed=speed, blocking=blocking)
 
     def stop_right_motor(self):
+        """Stop the right side motor(s).
+
+        For 4WD, stops both front-right and rear-right motors.
+        """
         if self.drivetrain == self.DRIVE_2WD:
             self.right_motor.stop()
         else:
             self.front_right_motor.stop()
             self.rear_right_motor.stop()
 
-    # --- Front Left (Port C) ---
+    # -------------------------------------------------------------------------
+    # Individual wheel control (4WD only)
+    # -------------------------------------------------------------------------
 
     def set_front_left_motor_speed(self, speed_rpm):
+        """Set the front-left motor to run continuously at the given speed (4WD only).
+
+        Args:
+            speed_rpm (float): Desired speed in RPM. Positive = forward,
+                               negative = reverse.
+        """
         if self.drivetrain != self.DRIVE_4WD:
             print("set_front_left_motor_speed is only available on 4WD.")
             return
@@ -245,6 +413,14 @@ class HamBot:
         self.front_left_motor.start(speed=speed_rpm)
 
     def run_front_left_motor_for_seconds(self, seconds, speed=75, blocking=True):
+        """Run the front-left motor for a fixed duration (4WD only).
+
+        Args:
+            seconds (float): Duration to run in seconds.
+            speed (float): Speed in RPM. Defaults to 75.
+            blocking (bool): If True, the call blocks until the motor finishes.
+                             Defaults to True.
+        """
         if self.drivetrain != self.DRIVE_4WD:
             print("run_front_left_motor_for_seconds is only available on 4WD.")
             return
@@ -253,6 +429,14 @@ class HamBot:
         self.front_left_motor.run_for_seconds(seconds, speed=speed, blocking=blocking)
 
     def run_front_left_motor_for_rotations(self, rotations, speed=75, blocking=True):
+        """Run the front-left motor for a fixed number of rotations (4WD only).
+
+        Args:
+            rotations (float): Number of rotations to perform.
+            speed (float): Speed in RPM. Defaults to 75.
+            blocking (bool): If True, the call blocks until the motor finishes.
+                             Defaults to True.
+        """
         if self.drivetrain != self.DRIVE_4WD:
             print("run_front_left_motor_for_rotations is only available on 4WD.")
             return
@@ -261,6 +445,14 @@ class HamBot:
         self.front_left_motor.run_for_rotations(rotations, speed=speed, blocking=blocking)
 
     def run_front_left_motor_to_position(self, position, speed=100, blocking=True):
+        """Move the front-left motor to an absolute position (4WD only).
+
+        Args:
+            position (float): Target position in degrees.
+            speed (float): Speed in RPM. Defaults to 100.
+            blocking (bool): If True, the call blocks until the motor finishes.
+                             Defaults to True.
+        """
         if self.drivetrain != self.DRIVE_4WD:
             print("run_front_left_motor_to_position is only available on 4WD.")
             return
@@ -269,14 +461,19 @@ class HamBot:
         self.front_left_motor.run_to_position(position, speed=speed, blocking=blocking)
 
     def stop_front_left_motor(self):
+        """Stop the front-left motor (4WD only)."""
         if self.drivetrain != self.DRIVE_4WD:
             print("stop_front_left_motor is only available on 4WD.")
             return
         self.front_left_motor.stop()
 
-    # --- Rear Left (Port D) ---
-
     def set_rear_left_motor_speed(self, speed_rpm):
+        """Set the rear-left motor to run continuously at the given speed (4WD only).
+
+        Args:
+            speed_rpm (float): Desired speed in RPM. Positive = forward,
+                               negative = reverse.
+        """
         if self.drivetrain != self.DRIVE_4WD:
             print("set_rear_left_motor_speed is only available on 4WD.")
             return
@@ -285,6 +482,14 @@ class HamBot:
         self.rear_left_motor.start(speed=speed_rpm)
 
     def run_rear_left_motor_for_seconds(self, seconds, speed=75, blocking=True):
+        """Run the rear-left motor for a fixed duration (4WD only).
+
+        Args:
+            seconds (float): Duration to run in seconds.
+            speed (float): Speed in RPM. Defaults to 75.
+            blocking (bool): If True, the call blocks until the motor finishes.
+                             Defaults to True.
+        """
         if self.drivetrain != self.DRIVE_4WD:
             print("run_rear_left_motor_for_seconds is only available on 4WD.")
             return
@@ -293,6 +498,14 @@ class HamBot:
         self.rear_left_motor.run_for_seconds(seconds, speed=speed, blocking=blocking)
 
     def run_rear_left_motor_for_rotations(self, rotations, speed=75, blocking=True):
+        """Run the rear-left motor for a fixed number of rotations (4WD only).
+
+        Args:
+            rotations (float): Number of rotations to perform.
+            speed (float): Speed in RPM. Defaults to 75.
+            blocking (bool): If True, the call blocks until the motor finishes.
+                             Defaults to True.
+        """
         if self.drivetrain != self.DRIVE_4WD:
             print("run_rear_left_motor_for_rotations is only available on 4WD.")
             return
@@ -301,6 +514,14 @@ class HamBot:
         self.rear_left_motor.run_for_rotations(rotations, speed=speed, blocking=blocking)
 
     def run_rear_left_motor_to_position(self, position, speed=100, blocking=True):
+        """Move the rear-left motor to an absolute position (4WD only).
+
+        Args:
+            position (float): Target position in degrees.
+            speed (float): Speed in RPM. Defaults to 100.
+            blocking (bool): If True, the call blocks until the motor finishes.
+                             Defaults to True.
+        """
         if self.drivetrain != self.DRIVE_4WD:
             print("run_rear_left_motor_to_position is only available on 4WD.")
             return
@@ -309,14 +530,19 @@ class HamBot:
         self.rear_left_motor.run_to_position(position, speed=speed, blocking=blocking)
 
     def stop_rear_left_motor(self):
+        """Stop the rear-left motor (4WD only)."""
         if self.drivetrain != self.DRIVE_4WD:
             print("stop_rear_left_motor is only available on 4WD.")
             return
         self.rear_left_motor.stop()
 
-    # --- Front Right (Port B) ---
-
     def set_front_right_motor_speed(self, speed_rpm):
+        """Set the front-right motor to run continuously at the given speed (4WD only).
+
+        Args:
+            speed_rpm (float): Desired speed in RPM. Positive = forward,
+                               negative = reverse.
+        """
         if self.drivetrain != self.DRIVE_4WD:
             print("set_front_right_motor_speed is only available on 4WD.")
             return
@@ -324,6 +550,14 @@ class HamBot:
         self.front_right_motor.start(speed=speed_rpm)
 
     def run_front_right_motor_for_seconds(self, seconds, speed=75, blocking=True):
+        """Run the front-right motor for a fixed duration (4WD only).
+
+        Args:
+            seconds (float): Duration to run in seconds.
+            speed (float): Speed in RPM. Defaults to 75.
+            blocking (bool): If True, the call blocks until the motor finishes.
+                             Defaults to True.
+        """
         if self.drivetrain != self.DRIVE_4WD:
             print("run_front_right_motor_for_seconds is only available on 4WD.")
             return
@@ -331,6 +565,14 @@ class HamBot:
         self.front_right_motor.run_for_seconds(seconds, speed=speed, blocking=blocking)
 
     def run_front_right_motor_for_rotations(self, rotations, speed=75, blocking=True):
+        """Run the front-right motor for a fixed number of rotations (4WD only).
+
+        Args:
+            rotations (float): Number of rotations to perform.
+            speed (float): Speed in RPM. Defaults to 75.
+            blocking (bool): If True, the call blocks until the motor finishes.
+                             Defaults to True.
+        """
         if self.drivetrain != self.DRIVE_4WD:
             print("run_front_right_motor_for_rotations is only available on 4WD.")
             return
@@ -338,6 +580,14 @@ class HamBot:
         self.front_right_motor.run_for_rotations(rotations, speed=speed, blocking=blocking)
 
     def run_front_right_motor_to_position(self, position, speed=100, blocking=True):
+        """Move the front-right motor to an absolute position (4WD only).
+
+        Args:
+            position (float): Target position in degrees.
+            speed (float): Speed in RPM. Defaults to 100.
+            blocking (bool): If True, the call blocks until the motor finishes.
+                             Defaults to True.
+        """
         if self.drivetrain != self.DRIVE_4WD:
             print("run_front_right_motor_to_position is only available on 4WD.")
             return
@@ -345,14 +595,19 @@ class HamBot:
         self.front_right_motor.run_to_position(position, speed=speed, blocking=blocking)
 
     def stop_front_right_motor(self):
+        """Stop the front-right motor (4WD only)."""
         if self.drivetrain != self.DRIVE_4WD:
             print("stop_front_right_motor is only available on 4WD.")
             return
         self.front_right_motor.stop()
 
-    # --- Rear Right (Port A) ---
-
     def set_rear_right_motor_speed(self, speed_rpm):
+        """Set the rear-right motor to run continuously at the given speed (4WD only).
+
+        Args:
+            speed_rpm (float): Desired speed in RPM. Positive = forward,
+                               negative = reverse.
+        """
         if self.drivetrain != self.DRIVE_4WD:
             print("set_rear_right_motor_speed is only available on 4WD.")
             return
@@ -360,6 +615,14 @@ class HamBot:
         self.rear_right_motor.start(speed=speed_rpm)
 
     def run_rear_right_motor_for_seconds(self, seconds, speed=75, blocking=True):
+        """Run the rear-right motor for a fixed duration (4WD only).
+
+        Args:
+            seconds (float): Duration to run in seconds.
+            speed (float): Speed in RPM. Defaults to 75.
+            blocking (bool): If True, the call blocks until the motor finishes.
+                             Defaults to True.
+        """
         if self.drivetrain != self.DRIVE_4WD:
             print("run_rear_right_motor_for_seconds is only available on 4WD.")
             return
@@ -367,6 +630,14 @@ class HamBot:
         self.rear_right_motor.run_for_seconds(seconds, speed=speed, blocking=blocking)
 
     def run_rear_right_motor_for_rotations(self, rotations, speed=75, blocking=True):
+        """Run the rear-right motor for a fixed number of rotations (4WD only).
+
+        Args:
+            rotations (float): Number of rotations to perform.
+            speed (float): Speed in RPM. Defaults to 75.
+            blocking (bool): If True, the call blocks until the motor finishes.
+                             Defaults to True.
+        """
         if self.drivetrain != self.DRIVE_4WD:
             print("run_rear_right_motor_for_rotations is only available on 4WD.")
             return
@@ -374,6 +645,14 @@ class HamBot:
         self.rear_right_motor.run_for_rotations(rotations, speed=speed, blocking=blocking)
 
     def run_rear_right_motor_to_position(self, position, speed=100, blocking=True):
+        """Move the rear-right motor to an absolute position (4WD only).
+
+        Args:
+            position (float): Target position in degrees.
+            speed (float): Speed in RPM. Defaults to 100.
+            blocking (bool): If True, the call blocks until the motor finishes.
+                             Defaults to True.
+        """
         if self.drivetrain != self.DRIVE_4WD:
             print("run_rear_right_motor_to_position is only available on 4WD.")
             return
@@ -381,14 +660,18 @@ class HamBot:
         self.rear_right_motor.run_to_position(position, speed=speed, blocking=blocking)
 
     def stop_rear_right_motor(self):
+        """Stop the rear-right motor (4WD only)."""
         if self.drivetrain != self.DRIVE_4WD:
             print("stop_rear_right_motor is only available on 4WD.")
             return
         self.rear_right_motor.stop()
 
-    # --- Grouped stop helpers (4WD only) ---
+    # -------------------------------------------------------------------------
+    # Grouped axle stop helpers (4WD only)
+    # -------------------------------------------------------------------------
 
     def stop_front_motors(self):
+        """Stop both front motors simultaneously (4WD only)."""
         if self.drivetrain != self.DRIVE_4WD:
             print("stop_front_motors is only available on 4WD.")
             return
@@ -396,23 +679,27 @@ class HamBot:
         self.front_right_motor.stop()
 
     def stop_rear_motors(self):
+        """Stop both rear motors simultaneously (4WD only)."""
         if self.drivetrain != self.DRIVE_4WD:
             print("stop_rear_motors is only available on 4WD.")
             return
         self.rear_left_motor.stop()
         self.rear_right_motor.stop()
 
+    # -------------------------------------------------------------------------
+    # Coordinated drive commands (2WD and 4WD)
+    # -------------------------------------------------------------------------
+
     def run_motors_for_rotations(self, rotations, left_speed=50, right_speed=50):
-        """
-        Run both motors for a specified number of rotations.
+        """Run both sides for a fixed number of rotations simultaneously.
+
+        The slower side blocks the call; the faster side runs non-blocking so
+        both sides start together and the function returns when both are done.
 
         Args:
-            rotations (float): The number of rotations for each motor to perform.
-            left_speed (float): The speed for the left motor in RPM (default is 50).
-            right_speed (float): The speed for the right motor in RPM (default is 50).
-
-        This method runs both motors for the given number of rotations, with the left motor running
-        asynchronously and the right motor running synchronously to ensure accurate movement.
+            rotations (float): Number of rotations for each side.
+            left_speed (float): Left side speed in RPM. Defaults to 50.
+            right_speed (float): Right side speed in RPM. Defaults to 50.
         """
         left_speed = self.check_speed(left_speed)
         right_speed = self.check_speed(right_speed)
@@ -423,31 +710,37 @@ class HamBot:
         if abs_right_speed >= abs_left_speed:
             self.run_right_motor_for_rotations(rotations, speed=right_speed, blocking=False)
             self.run_left_motor_for_rotations(rotations, speed=left_speed, blocking=True)
-
         else:
             self.run_left_motor_for_rotations(rotations, speed=left_speed, blocking=False)
             self.run_right_motor_for_rotations(rotations, speed=right_speed, blocking=True)
 
-
-
     def run_motors_for_seconds(self, seconds, left_speed=50, right_speed=50):
-        """
-        Run both motors for a specified number of seconds.
+        """Run both sides for a fixed duration simultaneously.
+
+        Left side runs non-blocking; right side blocks so the call returns
+        when both sides have finished.
 
         Args:
-            seconds (float): The duration in seconds to run both motors.
-            left_speed (float): The speed for the left motor in RPM (default is 50).
-            right_speed (float): The speed for the right motor in RPM (default is 50).
-
-        This method runs both motors for the given duration, with the left motor running
-        asynchronously and the right motor running synchronously to ensure consistent movement.
+            seconds (float): Duration to run in seconds.
+            left_speed (float): Left side speed in RPM. Defaults to 50.
+            right_speed (float): Right side speed in RPM. Defaults to 50.
         """
         left_speed = self.check_speed(left_speed)
         right_speed = self.check_speed(right_speed)
         self.run_left_motor_for_seconds(seconds, speed=left_speed, blocking=False)
         self.run_right_motor_for_seconds(seconds, speed=right_speed, blocking=True)
 
+    # -------------------------------------------------------------------------
+    # Encoder readers
+    # -------------------------------------------------------------------------
+
     def get_encoder_readings(self):
+        """Return accumulated encoder readings for all drive motors.
+
+        Returns:
+            list: For 2WD, [left_radians, right_radians].
+                  For 4WD, [FL_radians, RL_radians, FR_radians, RR_radians].
+        """
         if self.drivetrain == self.DRIVE_2WD:
             return [self.left_motor_radians, self.right_motor_radians]
         else:
@@ -455,43 +748,83 @@ class HamBot:
                     self.front_right_motor_radians, self.rear_right_motor_radians]
 
     def get_left_encoder_reading(self):
+        """Return accumulated encoder reading(s) for the left side.
+
+        Returns:
+            float: Accumulated radians for 2WD.
+            list: [front_left_radians, rear_left_radians] for 4WD.
+        """
         if self.drivetrain == self.DRIVE_2WD:
             return self.left_motor_radians
         else:
             return [self.front_left_motor_radians, self.rear_left_motor_radians]
 
     def get_right_encoder_reading(self):
+        """Return accumulated encoder reading(s) for the right side.
+
+        Returns:
+            float: Accumulated radians for 2WD.
+            list: [front_right_radians, rear_right_radians] for 4WD.
+        """
         if self.drivetrain == self.DRIVE_2WD:
             return self.right_motor_radians
         else:
             return [self.front_right_motor_radians, self.rear_right_motor_radians]
 
-    # 4WD individual encoder getters
     def get_front_left_encoder_reading(self):
+        """Return the accumulated encoder reading for the front-left motor (4WD only).
+
+        Returns:
+            float: Accumulated radians, or None if not in 4WD mode.
+        """
         if self.drivetrain != self.DRIVE_4WD:
             print("get_front_left_encoder_reading is only available on 4WD.")
             return None
         return self.front_left_motor_radians
 
     def get_rear_left_encoder_reading(self):
+        """Return the accumulated encoder reading for the rear-left motor (4WD only).
+
+        Returns:
+            float: Accumulated radians, or None if not in 4WD mode.
+        """
         if self.drivetrain != self.DRIVE_4WD:
             print("get_rear_left_encoder_reading is only available on 4WD.")
             return None
         return self.rear_left_motor_radians
 
     def get_front_right_encoder_reading(self):
+        """Return the accumulated encoder reading for the front-right motor (4WD only).
+
+        Returns:
+            float: Accumulated radians, or None if not in 4WD mode.
+        """
         if self.drivetrain != self.DRIVE_4WD:
             print("get_front_right_encoder_reading is only available on 4WD.")
             return None
         return self.front_right_motor_radians
 
     def get_rear_right_encoder_reading(self):
+        """Return the accumulated encoder reading for the rear-right motor (4WD only).
+
+        Returns:
+            float: Accumulated radians, or None if not in 4WD mode.
+        """
         if self.drivetrain != self.DRIVE_4WD:
             print("get_rear_right_encoder_reading is only available on 4WD.")
             return None
         return self.rear_right_motor_radians
 
+    # -------------------------------------------------------------------------
+    # Shutdown
+    # -------------------------------------------------------------------------
+
     def stop_motors(self):
+        """Stop all drive motors immediately.
+
+        For 2WD, stops left and right motors.
+        For 4WD, stops all four motors.
+        """
         if self.drivetrain == self.DRIVE_2WD:
             self.left_motor.stop()
             self.right_motor.stop()
@@ -502,6 +835,11 @@ class HamBot:
             self.rear_right_motor.stop()
 
     def disconnect_robot(self):
+        """Safely shut down all robot subsystems.
+
+        Stops all motors, halts the lidar and camera if enabled, terminates
+        the encoder tracking thread, and stops the IMU.
+        """
         self.stop_motors()
         if self.lidar is not None:
             self.lidar.stop_lidar()
@@ -511,10 +849,12 @@ class HamBot:
         self.position_thread.join()
         self.imu.stop()
 
-
     def shutdown(self, signum, frame):
-        """
-        Gracefully shutdown HamBot.
+        """Handle SIGINT by gracefully disconnecting and exiting.
+
+        Args:
+            signum (int): Signal number received.
+            frame: Current stack frame (unused).
         """
         print("Shutdown signal received. Stopping motors...")
         self.disconnect_robot()
