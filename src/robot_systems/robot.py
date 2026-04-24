@@ -5,29 +5,51 @@ from robot_systems.lidar import Lidar
 from robot_systems.camera import Camera
 
 class HamBot:
-    def __init__(self, lidar_enabled=True, camera_enabled=True):
-        # Initializes IMU
+    DRIVE_2WD = '2WD'
+    DRIVE_4WD = '4WD'
+
+    def __init__(self, drivetrain='2WD', lidar_enabled=True, camera_enabled=True):
+        if drivetrain not in (self.DRIVE_2WD, self.DRIVE_4WD):
+            raise ValueError(f"Invalid drivetrain '{drivetrain}'. Must be '{self.DRIVE_2WD}' or '{self.DRIVE_4WD}'.")
+
+        self.drivetrain = drivetrain
+        self.MAX_RPM = 100
+
         self.imu = IMU(poll_hz=20.0)
         self.imu.start()
 
-        # Initializes Motors and Encoders
-        self.left_motor = Motor('B')
-        self.left_motor.set_speed_unit_rpm(rpm=True)
+        if self.drivetrain == self.DRIVE_2WD:
+            self.left_motor = Motor('B')
+            self.left_motor.set_speed_unit_rpm(rpm=True)
+            self.right_motor = Motor('A')
+            self.right_motor.set_speed_unit_rpm(rpm=True)
 
-        self.right_motor = Motor('A')
-        self.right_motor.set_speed_unit_rpm(rpm=True)
+            self.left_motor_radians = 0.0
+            self.last_left_position = self.left_motor.get_position()
+            self.right_motor_radians = 0.0
+            self.last_right_position = self.right_motor.get_position()
+        else:
+            self.front_left_motor = Motor('C')
+            self.front_left_motor.set_speed_unit_rpm(rpm=True)
+            self.rear_left_motor = Motor('D')
+            self.rear_left_motor.set_speed_unit_rpm(rpm=True)
+            self.front_right_motor = Motor('B')
+            self.front_right_motor.set_speed_unit_rpm(rpm=True)
+            self.rear_right_motor = Motor('A')
+            self.rear_right_motor.set_speed_unit_rpm(rpm=True)
 
-        # Initialize rotation tracking
-        self.left_motor_radians = 0.0
-        self.last_left_position = self.left_motor.get_position()
+            self.front_left_motor_radians = 0.0
+            self.last_front_left_position = self.front_left_motor.get_position()
+            self.rear_left_motor_radians = 0.0
+            self.last_rear_left_position = self.rear_left_motor.get_position()
+            self.front_right_motor_radians = 0.0
+            self.last_front_right_position = self.front_right_motor.get_position()
+            self.rear_right_motor_radians = 0.0
+            self.last_rear_right_position = self.rear_right_motor.get_position()
 
-        self.right_motor_radians = 0.0
-        self.last_right_position = self.right_motor.get_position()
-
-        # Initializes Lidar
         if lidar_enabled:
             self.lidar = Lidar()
-        else :
+        else:
             self.lidar = None
 
         if camera_enabled:
@@ -35,12 +57,10 @@ class HamBot:
         else:
             self.camera = None
 
-        # Start the thread to update motor positions
         self.stop_thread = False
         self.position_thread = threading.Thread(target=self.update_motor_positions)
         self.position_thread.start()
 
-        # Set up signal handler for graceful shutdown
         signal.signal(signal.SIGINT, self.shutdown)
 
     def get_range_image(self):
@@ -67,187 +87,320 @@ class HamBot:
         return self.imu.get_heading(fresh_within=fresh_within,
                                     blocking=blocking,
                                     wait_timeout=wait_timeout)
-    # def get_heading(self):
-    #     """
-    #     Retrieve the current heading of the robot in degrees.
-    #
-    #     Returns:
-    #         float: The heading of the robot relative to East (0° to 360°).
-    #
-    #     This function fetches the current heading from the IMU, which indicates
-    #     the direction the robot is facing. The heading is adjusted to reflect the
-    #     orientation relative to East, with 0° representing East, 90° representing North,
-    #     180° representing West, and 270° representing South.
-    #     """
-    #     return self.imu.get_heading()
+
+    def _read_motor_delta(self, motor, last_position, invert=False):
+        current = motor.get_position()
+        delta = current - last_position
+        if delta > 180:
+            delta -= 360
+        elif delta < -180:
+            delta += 360
+        return current, -math.radians(delta) if invert else math.radians(delta)
 
     def update_motor_positions(self):
-        # TODO flip right motor backwards
-        """Threaded method to update the motor positions continuously."""
         while not self.stop_thread:
-            # Update left motor
-            current_left_position = self.left_motor.get_position()
-            delta_left_degrees = current_left_position - self.last_left_position
+            if self.drivetrain == self.DRIVE_2WD:
+                self.last_left_position, delta = self._read_motor_delta(
+                    self.left_motor, self.last_left_position, invert=True)
+                self.left_motor_radians += delta
 
-            # Handle wrap-around for the left motor
-            if delta_left_degrees > 180:
-                delta_left_degrees -= 360
-            elif delta_left_degrees < -180:
-                delta_left_degrees += 360
+                self.last_right_position, delta = self._read_motor_delta(
+                    self.right_motor, self.last_right_position)
+                self.right_motor_radians += delta
+            else:
+                self.last_front_left_position, delta = self._read_motor_delta(
+                    self.front_left_motor, self.last_front_left_position, invert=True)
+                self.front_left_motor_radians += delta
 
-            # Adjust the accumulation by inverting the direction for the left motor
-            self.left_motor_radians -= math.radians(delta_left_degrees)  # Negate to account for motor configuration
-            self.last_left_position = current_left_position
+                self.last_rear_left_position, delta = self._read_motor_delta(
+                    self.rear_left_motor, self.last_rear_left_position, invert=True)
+                self.rear_left_motor_radians += delta
 
-            # Update right motor
-            current_right_position = self.right_motor.get_position()
-            delta_right_degrees = current_right_position - self.last_right_position
+                self.last_front_right_position, delta = self._read_motor_delta(
+                    self.front_right_motor, self.last_front_right_position)
+                self.front_right_motor_radians += delta
 
-            # Handle wrap-around for the right motor
-            if delta_right_degrees > 180:
-                delta_right_degrees -= 360
-            elif delta_right_degrees < -180:
-                delta_right_degrees += 360
+                self.last_rear_right_position, delta = self._read_motor_delta(
+                    self.rear_right_motor, self.last_rear_right_position)
+                self.rear_right_motor_radians += delta
 
-            # Convert to radians and accumulate
-            self.right_motor_radians += math.radians(delta_right_degrees)
-            self.last_right_position = current_right_position
-
-            # Sleep to avoid excessive CPU usage
             time.sleep(0.05)
 
     def reset_encoders(self):
-        """Reset the encoder readings and accumulated radians to zero."""
-        self.left_motor_radians = 0.0
-        self.right_motor_radians = 0.0
-        self.last_left_position = self.left_motor.get_position()
-        self.last_right_position = self.right_motor.get_position()
+        if self.drivetrain == self.DRIVE_2WD:
+            self.left_motor_radians = 0.0
+            self.right_motor_radians = 0.0
+            self.last_left_position = self.left_motor.get_position()
+            self.last_right_position = self.right_motor.get_position()
+        else:
+            self.front_left_motor_radians = 0.0
+            self.rear_left_motor_radians = 0.0
+            self.front_right_motor_radians = 0.0
+            self.rear_right_motor_radians = 0.0
+            self.last_front_left_position = self.front_left_motor.get_position()
+            self.last_rear_left_position = self.rear_left_motor.get_position()
+            self.last_front_right_position = self.front_right_motor.get_position()
+            self.last_rear_right_position = self.rear_right_motor.get_position()
 
-    def check_speed(self,input_speed):
-        if -75 <= input_speed <= 75:
+    def check_speed(self, input_speed):
+        if -self.MAX_RPM <= input_speed <= self.MAX_RPM:
             return input_speed
-        elif input_speed < -75:
-            print("Speed must be between -75 and 75 revolutions per minute.")
-            return -75
-        elif input_speed > 75:
-            print("Speed must be between -75 and 75 revolutions per minute.")
-            return 75
+        elif input_speed < -self.MAX_RPM:
+            print(f"Speed must be between -{self.MAX_RPM} and {self.MAX_RPM} revolutions per minute.")
+            return -self.MAX_RPM
+        elif input_speed > self.MAX_RPM:
+            print(f"Speed must be between -{self.MAX_RPM} and {self.MAX_RPM} revolutions per minute.")
+            return self.MAX_RPM
+
     def set_left_motor_speed(self, speed_rpm):
-        """
-        Set the left motor speed in revolutions per minute (RPM).
-
-        Args:
-            speed_rpm (float): Desired speed in revolutions per minute.
-                               Positive values for forward, negative for reverse.
-        """
-        speed_rpm *= -1  # Inverting speed to match motor configuration
+        speed_rpm *= -1
         speed_rpm = self.check_speed(speed_rpm)
-        self.left_motor.start(speed=speed_rpm)
-
+        if self.drivetrain == self.DRIVE_2WD:
+            self.left_motor.start(speed=speed_rpm)
+        else:
+            self.front_left_motor.start(speed=speed_rpm)
+            self.rear_left_motor.start(speed=speed_rpm)
 
     def run_left_motor_for_seconds(self, seconds, speed=75, blocking=True):
-        """
-        Run the left motor for a specified number of seconds.
-
-        Args:
-            seconds (float): The duration to run the motor.
-            speed (float): The speed in RPM.
-        """
-        speed *= -1  # Inverting speed to match motor configuration
+        speed *= -1
         speed = self.check_speed(speed)
-        self.left_motor.run_for_seconds(seconds, speed=speed, blocking=blocking)
+        if self.drivetrain == self.DRIVE_2WD:
+            self.left_motor.run_for_seconds(seconds, speed=speed, blocking=blocking)
+        else:
+            self.front_left_motor.run_for_seconds(seconds, speed=speed, blocking=False)
+            self.rear_left_motor.run_for_seconds(seconds, speed=speed, blocking=blocking)
 
     def run_left_motor_for_rotations(self, rotations, speed=75, blocking=True):
-        """
-        Run the left motor for a specified number of rotations.
-
-        Args:
-            rotations (float): The number of rotations to run the motor.
-            speed (float): The speed in RPM.
-        """
-        speed *= -1  # Inverting speed to match motor configuration
+        speed *= -1
         speed = self.check_speed(speed)
-        self.left_motor.run_for_rotations(rotations, speed=speed, blocking=blocking)
+        if self.drivetrain == self.DRIVE_2WD:
+            self.left_motor.run_for_rotations(rotations, speed=speed, blocking=blocking)
+        else:
+            self.front_left_motor.run_for_rotations(rotations, speed=speed, blocking=False)
+            self.rear_left_motor.run_for_rotations(rotations, speed=speed, blocking=blocking)
 
     def run_left_motor_to_position(self, position, speed=100, blocking=True):
-        """
-        Run the left motor to a specified position.
-
-        Args:
-            position (float): The target position in degrees.
-            speed (float): The speed in RPM.
-        """
-        speed *= -1  # Inverting speed to match motor configuration
+        speed *= -1
         speed = self.check_speed(speed)
-        self.left_motor.run_to_position(position, speed=speed, blocking=blocking)
+        if self.drivetrain == self.DRIVE_2WD:
+            self.left_motor.run_to_position(position, speed=speed, blocking=blocking)
+        else:
+            self.front_left_motor.run_to_position(position, speed=speed, blocking=False)
+            self.rear_left_motor.run_to_position(position, speed=speed, blocking=blocking)
 
     def stop_left_motor(self):
-        """
-        Stop the left motor.
-        """
-        self.left_motor.stop()
+        if self.drivetrain == self.DRIVE_2WD:
+            self.left_motor.stop()
+        else:
+            self.front_left_motor.stop()
+            self.rear_left_motor.stop()
 
     def set_right_motor_speed(self, speed_rpm):
-        """
-        Set the right motor speed in revolutions per minute (RPM).
-
-        Args:
-            speed_rpm (float): Desired speed in revolutions per minute.
-                               Positive values for forward, negative for reverse.
-        """
         speed_rpm = self.check_speed(speed_rpm)
-        self.right_motor.start(speed_rpm)
+        if self.drivetrain == self.DRIVE_2WD:
+            self.right_motor.start(speed=speed_rpm)
+        else:
+            self.front_right_motor.start(speed=speed_rpm)
+            self.rear_right_motor.start(speed=speed_rpm)
 
     def run_right_motor_for_seconds(self, seconds, speed=75, blocking=True):
-        """
-        Run the right motor for a specified number of seconds.
-
-        Args:
-            seconds (float): The duration to run the motor.
-            speed (float): The speed in RPM.
-            blocking (bool): Whether the function should block until the operation is complete.
-        """
         speed = self.check_speed(speed)
-        self.right_motor.run_for_seconds(seconds, speed=speed, blocking=blocking)
+        if self.drivetrain == self.DRIVE_2WD:
+            self.right_motor.run_for_seconds(seconds, speed=speed, blocking=blocking)
+        else:
+            self.front_right_motor.run_for_seconds(seconds, speed=speed, blocking=False)
+            self.rear_right_motor.run_for_seconds(seconds, speed=speed, blocking=blocking)
 
     def run_right_motor_for_rotations(self, rotations, speed=75, blocking=True):
-        """
-        Run the right motor for a specified number of rotations.
-
-        Args:
-            rotations (float): The number of rotations to run the motor.
-            speed (float): The speed in RPM.
-            blocking (bool): Whether the function should block until the operation is complete.
-        """
         speed = self.check_speed(speed)
-        self.right_motor.run_for_rotations(rotations, speed=speed, blocking=blocking)
+        if self.drivetrain == self.DRIVE_2WD:
+            self.right_motor.run_for_rotations(rotations, speed=speed, blocking=blocking)
+        else:
+            self.front_right_motor.run_for_rotations(rotations, speed=speed, blocking=False)
+            self.rear_right_motor.run_for_rotations(rotations, speed=speed, blocking=blocking)
 
     def run_right_motor_to_position(self, position, speed=75, blocking=True):
-        """
-        Run the right motor to a specified position.
-
-        Args:
-            position (float): The target position in degrees.
-            speed (float): The speed in RPM.
-            blocking (bool): Whether the function should block until the operation is complete.
-        """
         speed = self.check_speed(speed)
-        self.right_motor.run_to_position(position, speed=speed, blocking=blocking)
+        if self.drivetrain == self.DRIVE_2WD:
+            self.right_motor.run_to_position(position, speed=speed, blocking=blocking)
+        else:
+            self.front_right_motor.run_to_position(position, speed=speed, blocking=False)
+            self.rear_right_motor.run_to_position(position, speed=speed, blocking=blocking)
 
     def stop_right_motor(self):
-        """
-        Stop the right motor.
-        """
-        self.right_motor.stop()
+        if self.drivetrain == self.DRIVE_2WD:
+            self.right_motor.stop()
+        else:
+            self.front_right_motor.stop()
+            self.rear_right_motor.stop()
 
-    def stop_motors(self):
-        """
-        Stop both the left and right motors.
+    # --- Front Left (Port C) ---
 
-        This method stops both motors simultaneously, ensuring that the robot halts all movement.
-        """
-        self.right_motor.stop()
-        self.left_motor.stop()
+    def set_front_left_motor_speed(self, speed_rpm):
+        if self.drivetrain != self.DRIVE_4WD:
+            print("set_front_left_motor_speed is only available on 4WD.")
+            return
+        speed_rpm *= -1
+        speed_rpm = self.check_speed(speed_rpm)
+        self.front_left_motor.start(speed=speed_rpm)
+
+    def run_front_left_motor_for_seconds(self, seconds, speed=75, blocking=True):
+        if self.drivetrain != self.DRIVE_4WD:
+            print("run_front_left_motor_for_seconds is only available on 4WD.")
+            return
+        speed *= -1
+        speed = self.check_speed(speed)
+        self.front_left_motor.run_for_seconds(seconds, speed=speed, blocking=blocking)
+
+    def run_front_left_motor_for_rotations(self, rotations, speed=75, blocking=True):
+        if self.drivetrain != self.DRIVE_4WD:
+            print("run_front_left_motor_for_rotations is only available on 4WD.")
+            return
+        speed *= -1
+        speed = self.check_speed(speed)
+        self.front_left_motor.run_for_rotations(rotations, speed=speed, blocking=blocking)
+
+    def run_front_left_motor_to_position(self, position, speed=100, blocking=True):
+        if self.drivetrain != self.DRIVE_4WD:
+            print("run_front_left_motor_to_position is only available on 4WD.")
+            return
+        speed *= -1
+        speed = self.check_speed(speed)
+        self.front_left_motor.run_to_position(position, speed=speed, blocking=blocking)
+
+    def stop_front_left_motor(self):
+        if self.drivetrain != self.DRIVE_4WD:
+            print("stop_front_left_motor is only available on 4WD.")
+            return
+        self.front_left_motor.stop()
+
+    # --- Rear Left (Port D) ---
+
+    def set_rear_left_motor_speed(self, speed_rpm):
+        if self.drivetrain != self.DRIVE_4WD:
+            print("set_rear_left_motor_speed is only available on 4WD.")
+            return
+        speed_rpm *= -1
+        speed_rpm = self.check_speed(speed_rpm)
+        self.rear_left_motor.start(speed=speed_rpm)
+
+    def run_rear_left_motor_for_seconds(self, seconds, speed=75, blocking=True):
+        if self.drivetrain != self.DRIVE_4WD:
+            print("run_rear_left_motor_for_seconds is only available on 4WD.")
+            return
+        speed *= -1
+        speed = self.check_speed(speed)
+        self.rear_left_motor.run_for_seconds(seconds, speed=speed, blocking=blocking)
+
+    def run_rear_left_motor_for_rotations(self, rotations, speed=75, blocking=True):
+        if self.drivetrain != self.DRIVE_4WD:
+            print("run_rear_left_motor_for_rotations is only available on 4WD.")
+            return
+        speed *= -1
+        speed = self.check_speed(speed)
+        self.rear_left_motor.run_for_rotations(rotations, speed=speed, blocking=blocking)
+
+    def run_rear_left_motor_to_position(self, position, speed=100, blocking=True):
+        if self.drivetrain != self.DRIVE_4WD:
+            print("run_rear_left_motor_to_position is only available on 4WD.")
+            return
+        speed *= -1
+        speed = self.check_speed(speed)
+        self.rear_left_motor.run_to_position(position, speed=speed, blocking=blocking)
+
+    def stop_rear_left_motor(self):
+        if self.drivetrain != self.DRIVE_4WD:
+            print("stop_rear_left_motor is only available on 4WD.")
+            return
+        self.rear_left_motor.stop()
+
+    # --- Front Right (Port B) ---
+
+    def set_front_right_motor_speed(self, speed_rpm):
+        if self.drivetrain != self.DRIVE_4WD:
+            print("set_front_right_motor_speed is only available on 4WD.")
+            return
+        speed_rpm = self.check_speed(speed_rpm)
+        self.front_right_motor.start(speed=speed_rpm)
+
+    def run_front_right_motor_for_seconds(self, seconds, speed=75, blocking=True):
+        if self.drivetrain != self.DRIVE_4WD:
+            print("run_front_right_motor_for_seconds is only available on 4WD.")
+            return
+        speed = self.check_speed(speed)
+        self.front_right_motor.run_for_seconds(seconds, speed=speed, blocking=blocking)
+
+    def run_front_right_motor_for_rotations(self, rotations, speed=75, blocking=True):
+        if self.drivetrain != self.DRIVE_4WD:
+            print("run_front_right_motor_for_rotations is only available on 4WD.")
+            return
+        speed = self.check_speed(speed)
+        self.front_right_motor.run_for_rotations(rotations, speed=speed, blocking=blocking)
+
+    def run_front_right_motor_to_position(self, position, speed=100, blocking=True):
+        if self.drivetrain != self.DRIVE_4WD:
+            print("run_front_right_motor_to_position is only available on 4WD.")
+            return
+        speed = self.check_speed(speed)
+        self.front_right_motor.run_to_position(position, speed=speed, blocking=blocking)
+
+    def stop_front_right_motor(self):
+        if self.drivetrain != self.DRIVE_4WD:
+            print("stop_front_right_motor is only available on 4WD.")
+            return
+        self.front_right_motor.stop()
+
+    # --- Rear Right (Port A) ---
+
+    def set_rear_right_motor_speed(self, speed_rpm):
+        if self.drivetrain != self.DRIVE_4WD:
+            print("set_rear_right_motor_speed is only available on 4WD.")
+            return
+        speed_rpm = self.check_speed(speed_rpm)
+        self.rear_right_motor.start(speed=speed_rpm)
+
+    def run_rear_right_motor_for_seconds(self, seconds, speed=75, blocking=True):
+        if self.drivetrain != self.DRIVE_4WD:
+            print("run_rear_right_motor_for_seconds is only available on 4WD.")
+            return
+        speed = self.check_speed(speed)
+        self.rear_right_motor.run_for_seconds(seconds, speed=speed, blocking=blocking)
+
+    def run_rear_right_motor_for_rotations(self, rotations, speed=75, blocking=True):
+        if self.drivetrain != self.DRIVE_4WD:
+            print("run_rear_right_motor_for_rotations is only available on 4WD.")
+            return
+        speed = self.check_speed(speed)
+        self.rear_right_motor.run_for_rotations(rotations, speed=speed, blocking=blocking)
+
+    def run_rear_right_motor_to_position(self, position, speed=100, blocking=True):
+        if self.drivetrain != self.DRIVE_4WD:
+            print("run_rear_right_motor_to_position is only available on 4WD.")
+            return
+        speed = self.check_speed(speed)
+        self.rear_right_motor.run_to_position(position, speed=speed, blocking=blocking)
+
+    def stop_rear_right_motor(self):
+        if self.drivetrain != self.DRIVE_4WD:
+            print("stop_rear_right_motor is only available on 4WD.")
+            return
+        self.rear_right_motor.stop()
+
+    # --- Grouped stop helpers (4WD only) ---
+
+    def stop_front_motors(self):
+        if self.drivetrain != self.DRIVE_4WD:
+            print("stop_front_motors is only available on 4WD.")
+            return
+        self.front_left_motor.stop()
+        self.front_right_motor.stop()
+
+    def stop_rear_motors(self):
+        if self.drivetrain != self.DRIVE_4WD:
+            print("stop_rear_motors is only available on 4WD.")
+            return
+        self.rear_left_motor.stop()
+        self.rear_right_motor.stop()
 
     def run_motors_for_rotations(self, rotations, left_speed=50, right_speed=50):
         """
@@ -295,53 +448,60 @@ class HamBot:
         self.run_right_motor_for_seconds(seconds, speed=right_speed, blocking=True)
 
     def get_encoder_readings(self):
-        """
-        Get the current encoder readings for both motors.
-
-        Returns:
-            list: A list containing the accumulated radians for the left and right motors [left, right].
-
-        This method returns the current accumulated rotation in radians for both motors, providing
-        an easy way to access the total rotation since the last reset.
-        """
-        return [self.left_motor_radians, self.right_motor_radians]
+        if self.drivetrain == self.DRIVE_2WD:
+            return [self.left_motor_radians, self.right_motor_radians]
+        else:
+            return [self.front_left_motor_radians, self.rear_left_motor_radians,
+                    self.front_right_motor_radians, self.rear_right_motor_radians]
 
     def get_left_encoder_reading(self):
-        """
-        Get the current encoder reading for the left motor.
-
-        Returns:
-            float: The accumulated radians for the left motor.
-
-        This method returns the current accumulated rotation in radians for the left motor, allowing
-        users to monitor the left motor's movement specifically.
-        """
-        return self.left_motor_radians
+        if self.drivetrain == self.DRIVE_2WD:
+            return self.left_motor_radians
+        else:
+            return [self.front_left_motor_radians, self.rear_left_motor_radians]
 
     def get_right_encoder_reading(self):
-        """
-        Get the current encoder reading for the right motor.
+        if self.drivetrain == self.DRIVE_2WD:
+            return self.right_motor_radians
+        else:
+            return [self.front_right_motor_radians, self.rear_right_motor_radians]
 
-        Returns:
-            float: The accumulated radians for the right motor.
+    # 4WD individual encoder getters
+    def get_front_left_encoder_reading(self):
+        if self.drivetrain != self.DRIVE_4WD:
+            print("get_front_left_encoder_reading is only available on 4WD.")
+            return None
+        return self.front_left_motor_radians
 
-        This method returns the current accumulated rotation in radians for the right motor, allowing
-        users to monitor the right motor's movement specifically.
-        """
-        return self.right_motor_radians
+    def get_rear_left_encoder_reading(self):
+        if self.drivetrain != self.DRIVE_4WD:
+            print("get_rear_left_encoder_reading is only available on 4WD.")
+            return None
+        return self.rear_left_motor_radians
+
+    def get_front_right_encoder_reading(self):
+        if self.drivetrain != self.DRIVE_4WD:
+            print("get_front_right_encoder_reading is only available on 4WD.")
+            return None
+        return self.front_right_motor_radians
+
+    def get_rear_right_encoder_reading(self):
+        if self.drivetrain != self.DRIVE_4WD:
+            print("get_rear_right_encoder_reading is only available on 4WD.")
+            return None
+        return self.rear_right_motor_radians
+
+    def stop_motors(self):
+        if self.drivetrain == self.DRIVE_2WD:
+            self.left_motor.stop()
+            self.right_motor.stop()
+        else:
+            self.front_left_motor.stop()
+            self.rear_left_motor.stop()
+            self.front_right_motor.stop()
+            self.rear_right_motor.stop()
 
     def disconnect_robot(self):
-        """
-        Safely disconnect the robot by stopping all motors and terminating the position tracking thread.
-
-        This method performs the following actions:
-        1. Stops the Lidar if it is enabled.
-        2. Stops both motors to ensure the robot halts all movement.
-        3. Stops the thread that tracks motor positions, ensuring it terminates cleanly.
-
-        This function is typically called during shutdown or when the robot needs to be safely disconnected
-        from its operational state.
-        """
         self.stop_motors()
         if self.lidar is not None:
             self.lidar.stop_lidar()
