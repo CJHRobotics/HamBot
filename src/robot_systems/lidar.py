@@ -7,7 +7,7 @@ from adafruit_rplidar import RPLidar, RPLidarException
 class Lidar:
     INVALID_READING = -1  # Define a constant for invalid readings
 
-    def __init__(self, port_name="/dev/ttyUSB0"):
+    def __init__(self, port_name="/dev/ttyUSB0",timeout=3):
         """
         Initialize the RPLidar, start the motor, and begin scanning in a separate thread.
 
@@ -15,7 +15,7 @@ class Lidar:
             port_name (str): The port name where the Lidar is connected.
             timeout (int): The timeout for the Lidar connection.
         """
-        self.lidar = RPLidar(None, port_name)
+        self.lidar = RPLidar(None, port_name,timeout = timeout)
         self.lidar.start_motor()
         self.scan_data = [self.INVALID_READING] * 360  # Initialize scan data with 360 degrees
         self.running = True
