@@ -8,7 +8,7 @@ class HamBot:
     DRIVE_2WD = '2WD'
     DRIVE_4WD = '4WD'
 
-    def __init__(self, drivetrain='2WD', lidar_enabled=True, camera_enabled=True):
+    def __init__(self, drivetrain='2WD', lidar_enabled=False, camera_enabled=False, camera_type=None):
         """Initialize HamBot with the specified drivetrain and optional peripherals.
 
         Args:
@@ -64,7 +64,12 @@ class HamBot:
             self.lidar = None
 
         if camera_enabled:
-            self.camera = Camera()
+            cam_type = camera_type if camera_type is not None else Camera.CAM_PICAM
+            try:
+                self.camera = Camera.create(cam_type)
+            except Exception as e:
+                print(f"Camera initialization failed ({e}). Operating without camera.")
+                self.camera = None
         else:
             self.camera = None
 
