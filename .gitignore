@@ -1,9 +1,18 @@
-# Python files
+# Python
 *.pyc
 __pycache__/
+*.egg-info/
+build/
+dist/
 
-# Virtual environment
+# Virtual environments
 venv/
+.venv/
+hambot_venv/
 
-# Other
+# OS / IDE
+.DS_Store
+.idea/
+
+# Logs
 *.log

@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=70", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hambot-oled"
+version = "0.1.0"
+description = "HamBot OLED network display (Raspberry Pi)"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "HamBot Team" }]
+license = { text = "MIT" }
+
+dependencies = [
+    "adafruit-circuitpython-ssd1306",
+    "Adafruit-Blinka",
+    "RPi.GPIO",
+    "Pillow",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
