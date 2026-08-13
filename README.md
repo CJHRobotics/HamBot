@@ -9,8 +9,7 @@ HamBot/
 ├── packages/
 │   ├── robot_systems/   # core library: motors, IMU, lidar, camera
 │   └── hambot_oled/     # SSD1306 network-status display
-├── demos/               # runnable example scripts
-├── examples/            # copied to ~/Desktop/Examples on install
+├── demos/               # runnable scripts (symlinked to ~/Desktop/Demos on install)
 ├── deploy/              # Pi setup scripts (venv, systemd, udev, bashrc)
 └── docs/                # figures + hardware notes (moved into packages/robot_systems)
 ```

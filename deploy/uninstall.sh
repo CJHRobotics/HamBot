@@ -32,6 +32,14 @@ remove_hambot() {
     echo "==> Removing venv: $VENV_DIR"
     rm -rf "$VENV_DIR"
   fi
+  if [ -L "$HOME/Desktop/Demos" ]; then
+    echo "==> Removing ~/Desktop/Demos symlink"
+    rm -f "$HOME/Desktop/Demos"
+  fi
+  if [ -d "$HOME/Desktop/Examples" ]; then
+    echo "==> Removing legacy ~/Desktop/Examples directory"
+    rm -rf "$HOME/Desktop/Examples"
+  fi
 }
 
 remove_oled() {
