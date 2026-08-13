@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Usage: ./deploy/install.sh [hambot|oled|depthai|both|all]
+# Usage: ./deploy/install.sh [--force] [hambot|oled|depthai|both|all]
 # Defaults: target=all
 #
 #   hambot  — robot_systems venv + .bashrc auto-activation + demos symlink
@@ -9,10 +9,32 @@ set -euo pipefail
 #   depthai — DepthAI/OAK camera udev rules + pip deps (requires hambot first)
 #   both    — hambot + oled
 #   all     — hambot + oled + depthai
-TARGET="${1:-all}"
+#
+#   --force   Delete and recreate the venv before installing. Use if the venv
+#             is corrupted or you want a clean start.
+
+FORCE=0
+TARGET=""
+for arg in "$@"; do
+  case "$arg" in
+    --force|-f) FORCE=1 ;;
+    hambot|oled|depthai|both|all) TARGET="$arg" ;;
+    -h|--help)
+      sed -n '3,15p' "$0"
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $arg"
+      echo "Usage: $0 [--force] [hambot|oled|depthai|both|all]"
+      exit 1
+      ;;
+  esac
+done
+TARGET="${TARGET:-all}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HAMBOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+VENV_DIR="$HAMBOT_DIR/hambot_venv"
 
 APT_PACKAGES=(
     python3-opencv          # cv2 (color_shuttle, cameraGUI)
@@ -28,15 +50,30 @@ apt_install() {
     sudo apt-get install -y "${APT_PACKAGES[@]}"
 }
 
+force_rebuild_venv() {
+    if [ -d "$VENV_DIR" ]; then
+        echo "==> --force: removing existing venv at $VENV_DIR"
+        rm -rf "$VENV_DIR"
+    fi
+}
+
 link_demos() {
     echo "==> Linking demos to ~/Desktop/Demos..."
     mkdir -p "$HOME/Desktop"
     ln -sfn "$HAMBOT_DIR/demos" "$HOME/Desktop/Demos"
 }
 
-case "$TARGET" in
-  hambot|oled|depthai|both|all) apt_install ;;
-esac
+if [ "$FORCE" = "1" ] && [[ "$TARGET" != "hambot" && "$TARGET" != "both" && "$TARGET" != "all" ]]; then
+    echo "ERROR: --force needs a target that rebuilds the venv (hambot, both, all)."
+    echo "       '$TARGET' alone would delete the venv without recreating it."
+    exit 1
+fi
+
+apt_install
+
+if [ "$FORCE" = "1" ]; then
+    force_rebuild_venv
+fi
 
 case "$TARGET" in
   hambot)  "$SCRIPT_DIR/setup_hambot.sh";  link_demos ;;
@@ -54,7 +91,7 @@ case "$TARGET" in
     link_demos
     ;;
   *)
-    echo "Usage: $0 [hambot|oled|depthai|both|all]"
+    echo "Usage: $0 [--force] [hambot|oled|depthai|both|all]"
     exit 1
     ;;
 esac

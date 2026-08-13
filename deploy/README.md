@@ -18,8 +18,10 @@ sudo usermod -aG i2c $USER    # log out/in afterwards
 ## Install
 
 ```bash
-./deploy/install.sh [target]
+./deploy/install.sh [--force] [target]
 ```
+
+`--force` deletes and recreates `hambot_venv` before installing. Use it if the venv is corrupted or you want a clean rebuild. Only valid with `hambot`, `both`, or `all` (the targets that create the venv).
 
 Targets:
 
