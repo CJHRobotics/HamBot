@@ -17,11 +17,12 @@ HamBot/
 ## Quick start (on the Pi)
 
 ```bash
-git clone git@github.com:biorobaw/HamBot.git ~/HamBot
+git clone https://github.com/CJHRobotics/HamBot.git ~/HamBot
 cd ~/HamBot
-sudo apt update && sudo apt install -y python3-opencv network-manager wireless-tools
 ./deploy/install.sh all     # or: hambot | oled | depthai | both
 ```
+
+`install.sh` handles apt packages, the venv, `.bashrc`, systemd units, and the Desktop symlink — you'll be prompted for `sudo` when it needs it.
 
 `install.sh` creates `~/HamBot/hambot_venv`, installs both packages into it, wires up `.bashrc` auto-activation, and (for `oled`/`all`) writes the systemd + NetworkManager hooks.
 

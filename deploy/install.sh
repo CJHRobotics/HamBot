@@ -14,11 +14,29 @@ TARGET="${1:-all}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HAMBOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+APT_PACKAGES=(
+    python3-opencv          # cv2 (color_shuttle, cameraGUI)
+    python3-pil.imagetk     # PIL.ImageTk for cameraGUI
+    python3-tk              # tkinter for cameraGUI
+    network-manager         # nmcli for OLED network display
+    wireless-tools          # iwgetid for OLED network display
+)
+
+apt_install() {
+    echo "==> Installing system packages (apt)..."
+    sudo apt-get update
+    sudo apt-get install -y "${APT_PACKAGES[@]}"
+}
+
 link_demos() {
     echo "==> Linking demos to ~/Desktop/Demos..."
     mkdir -p "$HOME/Desktop"
     ln -sfn "$HAMBOT_DIR/demos" "$HOME/Desktop/Demos"
 }
+
+case "$TARGET" in
+  hambot|oled|depthai|both|all) apt_install ;;
+esac
 
 case "$TARGET" in
   hambot)  "$SCRIPT_DIR/setup_hambot.sh";  link_demos ;;

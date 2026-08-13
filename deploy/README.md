@@ -6,12 +6,7 @@ Everything installs into a single shared venv at `<monorepo>/hambot_venv`. No ex
 
 ## System requirements
 
-Bookworm's default image already includes `git`, `python3-venv`, `python3-pip`, `python3-picamera2`, and `python3-numpy`. You only need:
-
-```bash
-sudo apt update
-sudo apt install -y python3-opencv network-manager wireless-tools
-```
+Bookworm's default image already includes `git`, `python3-venv`, `python3-pip`, `python3-picamera2`, and `python3-numpy`. Everything else — `python3-opencv`, `python3-pil.imagetk`, `python3-tk`, `network-manager`, `wireless-tools` — is installed automatically by `install.sh` (via `sudo apt`).
 
 If you plan to use the OLED, also enable I²C once:
 
