@@ -41,6 +41,10 @@ class SimpleRGBPicker:
         self.tolerance_slider.set(10)
         self.tolerance_slider.pack(fill="x", pady=(8, 0))
 
+        self.min_area_slider = Scale(left, from_=0, to=2000, orient=tk.HORIZONTAL, label="Min box area (px²)")
+        self.min_area_slider.set(100)
+        self.min_area_slider.pack(fill="x", pady=(8, 0))
+
         self.quit_button = Button(left, text="Quit", command=self.quit)
         self.quit_button.pack(pady=(12, 0), fill="x")
 
@@ -97,10 +101,11 @@ class SimpleRGBPicker:
             self.click_x = self.click_y = None
 
         # Draw boxes in RGB using Pillow (keep colors accurate)
+        min_area = self.min_area_slider.get()
         img = Image.fromarray(rgb, mode="RGB")
         draw = ImageDraw.Draw(img)
         for c in contours:
-            if cv2.contourArea(c) > 100:
+            if cv2.contourArea(c) > min_area:
                 x, y, w, h = cv2.boundingRect(c)
                 draw.rectangle([x, y, x + w, y + h], outline=(0, 255, 0), width=2)
 
