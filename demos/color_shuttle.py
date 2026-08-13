@@ -21,11 +21,15 @@ from robot_systems.robot import HamBot
 from robot_systems.camera import Camera
 
 
-# --- Target colors (true RGB, 0-255) ------------------------------------
-# Measure these on-robot with your cylinders in the actual lighting.
-BLUE_RGB = (0, 82, 168)
-PINK_RGB = (235, 113, 101)
-COLOR_TOLERANCE = 0.10  # fractional; widen if landmarks aren't detected
+# --- Target colors (OpenCV HSV: H 0-179, S 0-255, V 0-255) ---------------
+# Measure these on-robot with your cylinders in the actual lighting using
+# demos/cameraGUI.py (click a pixel — it prints the HSV values).
+# Only H is used for matching; S and V here are informational.
+BLUE_HSV = (110, 200, 150)
+PINK_HSV = (170, 180, 200)
+HUE_TOLERANCE  = 15   # ± hue units per target (OpenCV H ranges 0-179)
+MIN_SATURATION = 80   # reject washed-out pixels
+MIN_VALUE      = 60   # reject shadows / near-black
 
 # --- Motion ---------------------------------------------------------------
 CRUISE_RPM = 40          # forward speed while approaching a target
@@ -60,7 +64,15 @@ def nearest_front_mm(scan):
     return min(valid) if valid else None
 
 
-def render_view(bot, landmarks, target_name, target_rgb, front_mm):
+def hsv_to_bgr(hsv):
+    """Convert a single (H, S, V) tuple (OpenCV ranges) to a BGR tuple for drawing."""
+    import cv2, numpy as np
+    px = np.uint8([[list(hsv)]])
+    b, g, r = cv2.cvtColor(px, cv2.COLOR_HSV2BGR)[0, 0]
+    return int(b), int(g), int(r)
+
+
+def render_view(bot, landmarks, target_name, target_hsv, front_mm):
     """Draw the current frame with bounding boxes and status. Returns True
     unless the user pressed 'q' in the OpenCV window."""
     import cv2  # local import so headless runs don't require GUI cv2
@@ -70,7 +82,7 @@ def render_view(bot, landmarks, target_name, target_rgb, front_mm):
         return True
 
     view = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
-    box_bgr = (int(target_rgb[2]), int(target_rgb[1]), int(target_rgb[0]))
+    box_bgr = hsv_to_bgr(target_hsv)
 
     for i, lm in enumerate(landmarks):
         x0 = int(lm.x - lm.width // 2)
@@ -96,9 +108,12 @@ def render_view(bot, landmarks, target_name, target_rgb, front_mm):
     return cv2.waitKey(1) & 0xFF != ord("q")
 
 
-def approach_target(bot, target_name, target_rgb, show=False):
-    """Rotate to find target_rgb, then drive to it. Returns True on arrival."""
-    bot.camera.set_target_colors(target_rgb, tolerance=COLOR_TOLERANCE)
+def approach_target(bot, target_name, target_hsv, show=False):
+    """Rotate to find target_hsv, then drive to it. Returns True on arrival."""
+    bot.camera.set_target_colors(target_hsv,
+                                 hue_tolerance=HUE_TOLERANCE,
+                                 min_saturation=MIN_SATURATION,
+                                 min_value=MIN_VALUE)
     frame_center_x = FRAME_WIDTH // 2
     period = 1.0 / LOOP_HZ
 
@@ -110,7 +125,7 @@ def approach_target(bot, target_name, target_rgb, show=False):
         scan = bot.get_range_image()
         front = nearest_front_mm(scan) if scan != -1 else None
 
-        if show and not render_view(bot, landmarks, target_name, target_rgb, front):
+        if show and not render_view(bot, landmarks, target_name, target_hsv, front):
             bot.stop_motors()
             print("  quit requested from viewer")
             return False
@@ -165,14 +180,14 @@ def main():
     # Let sensors warm up
     time.sleep(2.0)
 
-    targets = [("blue", BLUE_RGB), ("pink", PINK_RGB)]
+    targets = [("blue", BLUE_HSV), ("pink", PINK_HSV)]
     idx = 0
 
     try:
         while True:
-            name, rgb = targets[idx]
+            name, hsv = targets[idx]
             print(f"heading to {name} cylinder...")
-            approach_target(bot, name, rgb, show=args.show)
+            approach_target(bot, name, hsv, show=args.show)
 
             # Small backup so we don't clip the cylinder on the next rotate
             bot.run_motors_for_seconds(0.4, left_speed=-25, right_speed=-25)

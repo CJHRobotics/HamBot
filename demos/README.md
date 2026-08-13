@@ -44,7 +44,12 @@ Tune `CRUISE_RPM_START`, `TURN_RATIO`, and the min/max speed constants at the to
 
 Edit the constants near the top of the file:
 
-- `BLUE_RGB` / `PINK_RGB` — measure your actual cylinders under the real lighting; blob detection is a raw RGB threshold.
-- `COLOR_TOLERANCE` — widen if the robot never spots a landmark, narrow if it locks onto the wrong thing.
+- `BLUE_HSV` / `PINK_HSV` — target colors in **OpenCV HSV** (H: 0-179, S: 0-255, V: 0-255). Sample them with `cameraGUI.py` under the real lighting; only H matters for matching.
+- `HUE_TOLERANCE` — ± hue units around each target. Widen if landmarks aren't detected, narrow if the robot locks onto the wrong color.
+- `MIN_SATURATION` / `MIN_VALUE` — global floors that reject washed-out and dark pixels. Lower them if the color reads dim; raise them if the mask picks up walls and shadows.
 - `STOP_MM` — how close (front lidar) before the robot stops.
 - `CRUISE_RPM`, `SEARCH_RPM`, `STEER_KP` — motion feel.
+
+## `cameraGUI.py`
+
+Live HSV tuner. Click a pixel to sample its HSV into the sliders; adjust hue tolerance + S/V floors to see what gets accepted. The values plug directly into `Camera.set_target_colors(...)`.
