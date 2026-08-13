@@ -42,32 +42,45 @@ class Camera(ABC):
                 f"Use Camera.CAM_PICAM or Camera.CAM_OAKD."
             )
 
+    # A target with sampled S below this threshold is treated as achromatic
+    # (black / white / gray) and matched by V-band instead of hue, because
+    # hue is meaningless for near-gray pixels.
+    ACHROMATIC_S_THRESHOLD = 40
+
     def __init__(self, fps=5, rotate_180=False,
-                 hue_tolerance=10, min_saturation=80, min_value=60):
+                 hue_tolerance=10, min_saturation=80, min_value=60,
+                 value_tolerance=30):
         """Initialise shared camera state.
 
         Args:
             fps (int): Target capture frame rate. Defaults to 5.
             rotate_180 (bool): Rotate frame 180° to correct for upside-down
                                mounting. Defaults to False.
-            hue_tolerance (int): ± hue units around each target for matching.
+            hue_tolerance (int): ± hue units around each chromatic target.
                                  OpenCV hue is 0-179 (half the 360° wheel), so
                                  a tolerance of 10 covers a 20-wide band.
                                  Defaults to 10.
-            min_saturation (int): Minimum S (0-255) for a pixel to be considered.
-                                  Rejects washed-out / gray pixels. Defaults to 80.
-            min_value (int): Minimum V (0-255) for a pixel to be considered.
-                             Rejects shadows and near-black pixels. Defaults to 60.
+            min_saturation (int): Minimum S (0-255) for a pixel to match a
+                                  *chromatic* target. Ignored for achromatic
+                                  (black/white/gray) targets. Defaults to 80.
+            min_value (int): Minimum V (0-255) for a pixel to match a
+                             *chromatic* target. Ignored for achromatic
+                             targets. Defaults to 60.
+            value_tolerance (int): ± V units around each *achromatic* target.
+                                   Only used when the target is black/white/gray
+                                   (its sampled S < ACHROMATIC_S_THRESHOLD).
+                                   Defaults to 30.
         """
-        self._fps            = max(1, int(fps))
-        self._rotate_180     = bool(rotate_180)
-        self._frame_rgb      = None
-        self._frame_lock     = threading.Lock()
-        self._target_hsv     = []
-        self._hue_tolerance  = int(np.clip(hue_tolerance, 0, 90))
-        self._min_saturation = int(np.clip(min_saturation, 0, 255))
-        self._min_value      = int(np.clip(min_value, 0, 255))
-        self._running        = True
+        self._fps             = max(1, int(fps))
+        self._rotate_180      = bool(rotate_180)
+        self._frame_rgb       = None
+        self._frame_lock      = threading.Lock()
+        self._target_hsv      = []
+        self._hue_tolerance   = int(np.clip(hue_tolerance, 0, 90))
+        self._min_saturation  = int(np.clip(min_saturation, 0, 255))
+        self._min_value       = int(np.clip(min_value, 0, 255))
+        self._value_tolerance = int(np.clip(value_tolerance, 0, 128))
+        self._running         = True
 
     @abstractmethod
     def get_frame(self, copy=True):
@@ -112,8 +125,19 @@ class Camera(ABC):
         s_min = self._min_saturation
         v_min = self._min_value
         tol   = self._hue_tolerance
+        v_tol = self._value_tolerance
 
-        for (h_t, _s_t, _v_t) in self._target_hsv:
+        for (h_t, s_t, v_t) in self._target_hsv:
+            # Achromatic (black/white/gray) — hue is undefined, match on V band
+            if s_t < self.ACHROMATIC_S_THRESHOLD:
+                v_lo = max(0, v_t - v_tol)
+                v_hi = min(255, v_t + v_tol)
+                lower = np.array([0,   0, v_lo], dtype=np.uint8)
+                upper = np.array([179, self.ACHROMATIC_S_THRESHOLD, v_hi], dtype=np.uint8)
+                mask_total = cv2.bitwise_or(mask_total, cv2.inRange(hsv, lower, upper))
+                continue
+
+            # Chromatic — hue ± tolerance, with wraparound; S/V floors apply
             h_lo = h_t - tol
             h_hi = h_t + tol
             if h_lo < 0:
@@ -168,18 +192,27 @@ class Camera(ABC):
         return None, None, None, None
 
     def set_target_colors(self, colors, hue_tolerance=None,
-                          min_saturation=None, min_value=None):
+                          min_saturation=None, min_value=None,
+                          value_tolerance=None):
         """Set the HSV colors used for landmark detection.
+
+        A target's sampled S value decides how it is matched:
+            * S ≥ ACHROMATIC_S_THRESHOLD → chromatic: match H ± hue_tolerance,
+              with S/V floors from min_saturation/min_value.
+            * S <  ACHROMATIC_S_THRESHOLD → achromatic (black/white/gray):
+              match V ± value_tolerance with S capped at the threshold; hue
+              tolerance and the S/V floors are not used.
 
         Args:
             colors (tuple | list[tuple]): One or more (H, S, V) tuples in
-                OpenCV ranges — H: 0-179, S: 0-255, V: 0-255. Only H is used
-                for matching; the S/V values in each tuple are informational
-                (e.g., what the picker sampled) and can be left as 0.
-            hue_tolerance (int | None): ± hue units around each target.
+                OpenCV ranges — H: 0-179, S: 0-255, V: 0-255. Sample these
+                with demos/cameraGUI.py; the S value drives mode selection.
+            hue_tolerance (int | None): ± hue units for chromatic targets.
                                         If None, the current value is kept.
-            min_saturation (int | None): Global S floor. If None, kept as-is.
-            min_value (int | None): Global V floor. If None, kept as-is.
+            min_saturation (int | None): S floor for chromatic targets. If None, kept.
+            min_value (int | None): V floor for chromatic targets. If None, kept.
+            value_tolerance (int | None): ± V units for achromatic targets.
+                                          If None, the current value is kept.
         """
         if isinstance(colors, tuple):
             self._target_hsv = [colors]
@@ -191,6 +224,8 @@ class Camera(ABC):
             self._min_saturation = int(np.clip(min_saturation, 0, 255))
         if min_value is not None:
             self._min_value = int(np.clip(min_value, 0, 255))
+        if value_tolerance is not None:
+            self._value_tolerance = int(np.clip(value_tolerance, 0, 128))
 
     def clear_target_colors(self):
         """Remove all configured target colors."""

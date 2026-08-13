@@ -53,3 +53,10 @@ Edit the constants near the top of the file:
 ## `cameraGUI.py`
 
 Live HSV tuner. Click a pixel to sample its HSV into the sliders; adjust hue tolerance + S/V floors to see what gets accepted. The values plug directly into `Camera.set_target_colors(...)`.
+
+The tuner shows one of two modes based on the sampled S value:
+
+- **`[chromatic]`** — normal color (blue, pink, red, green…). Match band is hue ± `hue_tolerance` with S/V floors filtering out washed-out and dark pixels.
+- **`[achromatic]`** — black, white, or gray. Hue is meaningless for these because near-gray pixels have unstable/undefined hue, so the matcher switches to `value ± value_tolerance` with S capped at the achromatic threshold. Click a black pixel and lower the value slider will follow — tune `value_tolerance` to widen the accepted brightness band.
+
+Pass `value_tolerance=...` to `Camera.set_target_colors` alongside `hue_tolerance=...` when targeting black/white/gray.

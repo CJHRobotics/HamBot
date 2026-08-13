@@ -17,6 +17,9 @@ from tkinter import Scale, Button, Frame, Label
 from PIL import Image, ImageTk, ImageDraw  # apt: sudo apt install -y python3-pil.imagetk python3-tk
 import cv2
 
+# Kept in sync with robot_systems.camera.Camera.ACHROMATIC_S_THRESHOLD
+ACHROMATIC_S_THRESHOLD = 40
+
 
 class HSVPicker:
     def __init__(self, size=(320, 240)):
@@ -63,6 +66,10 @@ class HSVPicker:
         self.min_v_slider.set(60)
         self.min_v_slider.pack(fill="x")
 
+        self.value_tol_slider = Scale(left, from_=0, to=128, orient=tk.HORIZONTAL, label="Value tol (achromatic ±)")
+        self.value_tol_slider.set(30)
+        self.value_tol_slider.pack(fill="x")
+
         self.min_area_slider = Scale(left, from_=0, to=2000, orient=tk.HORIZONTAL, label="Min box area (px²)")
         self.min_area_slider.set(100)
         self.min_area_slider.pack(fill="x", pady=(8, 0))
@@ -87,6 +94,14 @@ class HSVPicker:
         self.root.protocol("WM_DELETE_WINDOW", self.quit)
         self.update_image()
         self.root.mainloop()
+
+    def _mask_achromatic(self, hsv, v_t, v_tol):
+        """Build an inRange mask around v_t ± v_tol with S capped at the threshold."""
+        v_lo = max(0, v_t - v_tol)
+        v_hi = min(255, v_t + v_tol)
+        return cv2.inRange(hsv,
+                           np.array([0,   0, v_lo], dtype=np.uint8),
+                           np.array([179, ACHROMATIC_S_THRESHOLD, v_hi], dtype=np.uint8))
 
     def _mask_hsv(self, hsv, h_t, tol, s_min, v_min):
         """Build an inRange mask around h_t ± tol with hue wraparound."""
@@ -123,12 +138,19 @@ class HSVPicker:
             self.click_x = self.click_y = None
 
         h_t = self.h_slider.get()
+        s_t = self.s_slider.get()
+        v_t = self.v_slider.get()
         tol = self.hue_tol_slider.get()
         s_min = self.min_s_slider.get()
         v_min = self.min_v_slider.get()
+        v_tol = self.value_tol_slider.get()
         min_area = self.min_area_slider.get()
 
-        mask = self._mask_hsv(hsv, h_t, tol, s_min, v_min)
+        achromatic = s_t < ACHROMATIC_S_THRESHOLD
+        if achromatic:
+            mask = self._mask_achromatic(hsv, v_t, v_tol)
+        else:
+            mask = self._mask_hsv(hsv, h_t, tol, s_min, v_min)
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
         img = Image.fromarray(rgb, mode="RGB")
@@ -138,10 +160,13 @@ class HSVPicker:
                 x, y, w, h = cv2.boundingRect(c)
                 draw.rectangle([x, y, x + w, y + h], outline=(0, 255, 0), width=2)
 
-        self.info_label.config(
-            text=f"target H={h_t} S={self.s_slider.get()} V={self.v_slider.get()}   "
-                 f"±{tol}   floors S≥{s_min} V≥{v_min}   min_area={min_area}"
-        )
+        if achromatic:
+            info = (f"[achromatic]  target V={v_t}  ±{v_tol}   "
+                    f"(S≤{ACHROMATIC_S_THRESHOLD})   min_area={min_area}")
+        else:
+            info = (f"[chromatic]   target H={h_t} S={s_t} V={v_t}   "
+                    f"±{tol}   floors S≥{s_min} V≥{v_min}   min_area={min_area}")
+        self.info_label.config(text=info)
 
         self.photo = ImageTk.PhotoImage(image=img)
         if self.canvas_img_id is None:
