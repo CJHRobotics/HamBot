@@ -2,18 +2,61 @@
 
 HamBot is a Python library designed to control a robot equipped with various sensors, including IMU, Lidar, and Camera. The library simplifies robot programming, providing easy-to-use interfaces for sensor data acquisition and motor control.
 
-![Pi Camera](docs/figures/hambot_dims.png)
-## Technical Specifications
+The physical HamBot is an open-source differential drive robot.
 
-| Component                  | Specification                                                                                                                                                                                                            |
-|-----------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Wheel Diameter / Radius     | 90 mm / 45 mm                                                                                                                                                                                                            |
-| Axel Length (wheel spacing) | 184 mm                                                                                                                                                                                                                   |
-| Max Motor Speed             | 75 RPM (approx. 7.85 rad/s)                                                            <br/>                                                                                                                             |
-| Drive Motors                | LEGO Technic Large Angular Motors via Raspberry Pi Build HAT ([Datasheet](https://le-www-live-s.legocdn.com/sc/media/files/support/spike-prime/techspecs_techniclargeangularmotor-1b79e2f4fbb292aaf40c97fec0c31fff.pdf)) |
-| IMU                         | Adafruit BNO055 Absolute Orientation Sensor                                                                                                                                                                              |
-| LiDAR                       | Slamtec RPLidar (360° scanning)                                                                                                                                                                                          |
-| Camera                      | Raspberry Pi Camera Board v2 (8 MP)                                                                                                                                                                                      |
+---
+
+### Robot Views
+
+<table>
+  <tr>
+    <td align="center"><b>Front</b></td>
+    <td align="center"><b>Rear</b></td>
+    <td align="center"><b>Left</b></td>
+  </tr>
+  <tr>
+    <td><img src="docs/figures/HamBot_front_NB.png" width="220"/></td>
+    <td><img src="docs/figures/HamBot_rear_NB.png" width="220"/></td>
+    <td><img src="docs/figures/HamBot_left_NB.png" width="220"/></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Right</b></td>
+    <td align="center"><b>Top</b></td>
+    <td align="center"><b>Bottom</b></td>
+  </tr>
+  <tr>
+    <td><img src="docs/figures/HamBot_right_NB.png" width="220"/></td>
+    <td><img src="docs/figures/HamBot_top_NB.png" width="220"/></td>
+    <td><img src="docs/figures/HamBot_bottom_NB.png" width="220"/></td>
+  </tr>
+</table>
+
+---
+
+### Specifications
+
+![HamBot Dimensions](docs/figures/HamBot_Dims.png)
+
+| Characteristic                   | Value         |
+|----------------------------------|---------------|
+| Length                           | 200 mm        |
+| Width                            | 184 mm        |
+| Wheel Diameter / Radius          | 90 mm / 45 mm |
+| Axel Width                       | 205 mm        |
+| Height                           | 220 mm        |
+| Weight                           | 1.65 kg       |
+| Max forward/reverse wheel speed  | 0.81 m/s      |
+| Max forward/reverse motor speed  | 18 rad/s      |
+
+### Hardware
+
+| Component | Details |
+|-----------|---------|
+| Motors | [LEGO Technic Large Motors](https://le-www-live-s.legocdn.com/sc/media/files/support/spike-prime/techspecs_techniclargeangularmotor-1b79e2f4fbb292aaf40c97fec0c31fff.pdf) via [LEGO Build HAT](https://www.raspberrypi.com/products/build-hat/) |
+| IMU | [Adafruit BNO055](https://learn.adafruit.com/adafruit-bno055-absolute-orientation-sensor/python-circuitpython) |
+| LiDAR | [Slamtec RPLidar A2](https://learn.adafruit.com/slamtec-rplidar-on-pi) |
+| Camera | Front-facing, 224×224, with object recognition |
+| GPS | Absolute position in world frame |
 
 ---
 ## Features
