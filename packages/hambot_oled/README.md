@@ -1,6 +1,6 @@
 # HamBot OLED
 
-Displays current network mode/SSID/IP on a 128x32 SSD1306 OLED via I²C.
+Displays the robot hostname plus current network mode/SSID on a 128x32 SSD1306 OLED via I²C.
 
 ## Requirements (system)
 - Raspberry Pi OS with I²C enabled (`sudo raspi-config nonint do_i2c 0`)
