@@ -23,7 +23,7 @@ cd ~/HamBot
 ./deploy/install.sh all     # or: hambot | oled | depthai | link | both
 ```
 
-Add `--link` to any target to also install the Vivid console control listener and camera stream; `all` leaves them out by default.
+`all` includes the Vivid console control listener and camera stream. The narrower targets leave it out; add `--link` to include it with one of those, or use the `link` target to add only the listener to a robot that is already set up.
 
 `install.sh` handles apt packages, the venv, `.bashrc`, systemd units, and the Desktop symlink — you'll be prompted for `sudo` when it needs it.
 

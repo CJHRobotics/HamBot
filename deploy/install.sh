@@ -9,14 +9,14 @@ set -euo pipefail
 #   depthai — DepthAI/OAK camera udev rules + pip deps (requires hambot first)
 #   link    — Vivid console control listener (requires hambot first)
 #   both    — hambot + oled
-#   all     — hambot + oled + depthai
+#   all     — hambot + oled + depthai + link
 #
 #   --force   Delete and recreate the venv before installing. Use if the venv
 #             is corrupted or you want a clean start.
-#   --link    Also install the console control listener alongside the target.
-#             'all' does not include it by default. To add only the listener
-#             to a robot that is already set up, use the 'link' target - or
-#             run deploy/setup_link.sh directly.
+#   --link    Also install the console control listener alongside a target that
+#             does not already include it ('hambot', 'oled', 'depthai', 'both').
+#             Redundant with 'all'. To add only the listener to a robot that is
+#             already set up, use the 'link' target.
 
 FORCE=0
 LINK=0
@@ -70,6 +70,16 @@ link_demos() {
     ln -sfn "$HAMBOT_DIR/demos" "$HOME/Desktop/Demos"
 }
 
+# 'all' installs the listener and --link asks for it too, so guard against
+# running the setup twice when both are given.
+LINK_INSTALLED=0
+install_link() {
+    if [ "$LINK_INSTALLED" = "0" ]; then
+        "$SCRIPT_DIR/setup_link.sh"
+        LINK_INSTALLED=1
+    fi
+}
+
 if [ "$FORCE" = "1" ] && [[ "$TARGET" != "hambot" && "$TARGET" != "both" && "$TARGET" != "all" ]]; then
     echo "ERROR: --force needs a target that rebuilds the venv (hambot, both, all)."
     echo "       '$TARGET' alone would delete the venv without recreating it."
@@ -90,7 +100,7 @@ case "$TARGET" in
   hambot)  "$SCRIPT_DIR/setup_hambot.sh";  link_demos ;;
   oled)    "$SCRIPT_DIR/setup_oled.sh" ;;
   depthai) "$SCRIPT_DIR/setup_depthai.sh" ;;
-  link)    "$SCRIPT_DIR/setup_link.sh" ;;
+  link)    install_link ;;
   both)
     "$SCRIPT_DIR/setup_hambot.sh"
     "$SCRIPT_DIR/setup_oled.sh"
@@ -100,6 +110,7 @@ case "$TARGET" in
     "$SCRIPT_DIR/setup_hambot.sh"
     "$SCRIPT_DIR/setup_oled.sh"
     "$SCRIPT_DIR/setup_depthai.sh"
+    install_link
     link_demos
     ;;
   *)
@@ -108,8 +119,8 @@ case "$TARGET" in
     ;;
 esac
 
-if [ "$LINK" = "1" ] && [ "$TARGET" != "link" ]; then
-    "$SCRIPT_DIR/setup_link.sh"
+if [ "$LINK" = "1" ]; then
+    install_link
 fi
 
 echo "==> Install complete for target: $TARGET"

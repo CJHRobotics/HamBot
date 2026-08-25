@@ -23,7 +23,9 @@ sudo usermod -aG i2c $USER    # log out/in afterwards
 
 `--force` deletes and recreates `hambot_venv` before installing. Use it if the venv is corrupted or you want a clean rebuild. Only valid with `hambot`, `both`, or `all` (the targets that create the venv).
 
-`--link` also installs the Vivid console control listener and camera stream alongside whichever target you chose. `all` does **not** include them by default, so a robot only accepts remote control once you opt in.
+`all` installs the Vivid console control listener and camera stream, so a full install leaves the robot ready to drive. The narrower targets (`hambot`, `oled`, `depthai`, `both`) leave it out; add `--link` to include it alongside one of those.
+
+Installing the listener does not by itself expose the robot: `hambot-link` only runs when someone connects with a key already present in `authorized_keys`. That file, not the presence of the binary, is the access boundary.
 
 To add the listener to a robot that is **already** set up, do not use `--link` on its own — with no target that still means `all`, a full reinstall. Use the `link` target, which touches nothing else and installs no apt packages:
 
@@ -40,7 +42,7 @@ Targets:
 | `depthai` | Adds the OAK-camera udev rule, `pip install`s `depthai`/`opencv-python`/`simplejpeg` into the shared venv, and clones `depthai-python` next to the monorepo. Requires `hambot` first. |
 | `link` | Installs `packages/hambot_link` into the shared venv and symlinks `hambot-link` and `hambot-camera` into `/usr/local/bin` so the Vivid console can launch them over SSH. No systemd unit — the console starts one process per driving or viewing session, so the motors and camera stay free for demos otherwise. Requires `hambot` first. |
 | `both` | `hambot` + `oled`. |
-| `all` (default) | `hambot` + `oled` + `depthai`. |
+| `all` (default) | `hambot` + `oled` + `depthai` + `link`. A full install leaves the robot ready for the Vivid console. |
 
 ## Individual scripts
 
