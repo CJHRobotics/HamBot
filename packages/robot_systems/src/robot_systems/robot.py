@@ -74,10 +74,19 @@ class HamBot:
             self.camera = None
 
         self.stop_thread = False
+        self.disconnected = False
         self.position_thread = threading.Thread(target=self.update_motor_positions)
         self.position_thread.start()
 
-        signal.signal(signal.SIGINT, self.shutdown)
+        # SIGTERM matters as much as SIGINT: systemd and `kill` use it, and with
+        # no handler the process dies while the motors are still turning.
+        # signal.signal() only works on the main thread, so a HamBot built on a
+        # worker thread simply goes without handlers.
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            try:
+                signal.signal(sig, self.shutdown)
+            except ValueError:
+                pass
 
     # -------------------------------------------------------------------------
     # Sensors
@@ -843,8 +852,12 @@ class HamBot:
         """Safely shut down all robot subsystems.
 
         Stops all motors, halts the lidar and camera if enabled, terminates
-        the encoder tracking thread, and stops the IMU.
+        the encoder tracking thread, and stops the IMU. Safe to call more than
+        once; repeat calls return immediately.
         """
+        if self.disconnected:
+            return
+        self.disconnected = True
         self.stop_motors()
         if self.lidar is not None:
             self.lidar.stop_lidar()
@@ -855,7 +868,7 @@ class HamBot:
         self.imu.stop()
 
     def shutdown(self, signum, frame):
-        """Handle SIGINT by gracefully disconnecting and exiting.
+        """Handle SIGINT/SIGTERM by gracefully disconnecting and exiting.
 
         Args:
             signum (int): Signal number received.
