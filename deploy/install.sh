@@ -14,7 +14,9 @@ set -euo pipefail
 #   --force   Delete and recreate the venv before installing. Use if the venv
 #             is corrupted or you want a clean start.
 #   --link    Also install the console control listener alongside the target.
-#             'all' does not include it by default.
+#             'all' does not include it by default. To add only the listener
+#             to a robot that is already set up, use the 'link' target - or
+#             run deploy/setup_link.sh directly.
 
 FORCE=0
 LINK=0
@@ -25,7 +27,7 @@ for arg in "$@"; do
     --link|-l)  LINK=1 ;;
     hambot|oled|depthai|link|both|all) TARGET="$arg" ;;
     -h|--help)
-      sed -n '3,17p' "$0"
+      sed -n '3,20p' "$0"
       exit 0
       ;;
     *)
@@ -74,7 +76,11 @@ if [ "$FORCE" = "1" ] && [[ "$TARGET" != "hambot" && "$TARGET" != "both" && "$TA
     exit 1
 fi
 
-apt_install
+# The link target installs no apt packages, so skip the package pass entirely.
+# Adding the listener to a working robot should not touch its packages.
+if [ "$TARGET" != "link" ]; then
+    apt_install
+fi
 
 if [ "$FORCE" = "1" ]; then
     force_rebuild_venv

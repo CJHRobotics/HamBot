@@ -25,6 +25,12 @@ sudo usermod -aG i2c $USER    # log out/in afterwards
 
 `--link` also installs the Vivid console control listener and camera stream alongside whichever target you chose. `all` does **not** include them by default, so a robot only accepts remote control once you opt in.
 
+To add the listener to a robot that is **already** set up, do not use `--link` on its own — with no target that still means `all`, a full reinstall. Use the `link` target, which touches nothing else and installs no apt packages:
+
+```bash
+git pull && ./deploy/install.sh link
+```
+
 Targets:
 
 | Target | What it does |
