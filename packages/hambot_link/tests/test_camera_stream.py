@@ -96,3 +96,47 @@ class HangupTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HangupThreadTests(unittest.TestCase):
+    """The hangup watcher must not still hold stdin at interpreter shutdown."""
+
+    def test_it_returns_when_the_session_ends_without_stdin_eof(self):
+        import os
+        import threading
+        import time
+
+        read_fd, write_fd = os.pipe()          # stays open: no EOF, like real ssh
+        self.addCleanup(os.close, write_fd)
+        stream = os.fdopen(read_fd, "rb")
+        self.addCleanup(stream.close)
+
+        writer = camera_stream.FrameWriter(io.BytesIO())
+        thread = threading.Thread(
+            target=camera_stream.watch_for_hangup,
+            args=(stream, writer, 0.01), daemon=True)
+        thread.start()
+        time.sleep(0.05)
+        self.assertTrue(thread.is_alive(), "should still be watching")
+
+        writer.close()                          # viewer's pipe broke instead
+        thread.join(timeout=2.0)
+        self.assertFalse(thread.is_alive(),
+                         "must exit when the session ends, or shutdown aborts")
+
+    def test_stdin_eof_still_closes_the_session(self):
+        import os
+        import threading
+
+        read_fd, write_fd = os.pipe()
+        stream = os.fdopen(read_fd, "rb")
+        self.addCleanup(stream.close)
+        writer = camera_stream.FrameWriter(io.BytesIO())
+        thread = threading.Thread(
+            target=camera_stream.watch_for_hangup,
+            args=(stream, writer, 0.01), daemon=True)
+        thread.start()
+        os.close(write_fd)                      # console hangs up
+        thread.join(timeout=2.0)
+        self.assertFalse(thread.is_alive())
+        self.assertTrue(writer.closed)

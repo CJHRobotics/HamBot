@@ -46,6 +46,15 @@ def log(message: str) -> None:
     print(f"[hambot-link] {message}", file=sys.stderr, flush=True)
 
 
+def fail(message: str) -> None:
+    """Report a session-ending problem.
+
+    Marked so the console can tell a real failure from ordinary chatter
+    without pattern-matching on wording.
+    """
+    log(f"ERROR: {message}")
+
+
 def clamp(rpm: int, limit: int) -> int:
     return max(-limit, min(limit, rpm))
 
@@ -182,7 +191,7 @@ def main(argv: list[str] | None = None) -> int:
 
     lock_fd = acquire_lock(CONTROL_LOCK)
     if lock_fd is None:
-        log("another control session is already driving this robot")
+        fail("another control session is already driving this robot")
         return 1
 
     log(f"protocol v{PROTOCOL_VERSION}, limit {args.limit} RPM, "
@@ -194,7 +203,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         bot = HamBot(drivetrain=args.drivetrain)
     except Exception as exc:
-        log(f"could not attach to the robot: {exc}")
+        fail(f"could not attach to the robot: {exc}")
         log("a demo may already be holding the Build HAT")
         os.close(lock_fd)
         return 1

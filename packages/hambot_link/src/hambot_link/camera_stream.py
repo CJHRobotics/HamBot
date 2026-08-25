@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import select
 import sys
 import threading
 import time
@@ -46,6 +47,15 @@ POLL_SECONDS = 0.2
 def log(message: str) -> None:
     """Write a diagnostic to stderr; stdout carries frames and nothing else."""
     print(f"[hambot-camera] {message}", file=sys.stderr, flush=True)
+
+
+def fail(message: str) -> None:
+    """Report a session-ending problem.
+
+    Marked so the console can tell a real failure from ordinary chatter
+    without pattern-matching on wording.
+    """
+    log(f"ERROR: {message}")
 
 
 def parse_resolution(text: str) -> tuple[int, int]:
@@ -94,17 +104,43 @@ class FrameWriter:
             self.closed = True
 
 
-def watch_for_hangup(stream, writer: FrameWriter) -> None:
+def watch_for_hangup(stream, writer: FrameWriter, poll: float = POLL_SECONDS) -> None:
     """Close the session when the console closes its end of the SSH pipe.
 
     A broken stdout is the usual signal, but a console that shuts down cleanly
     closes stdin first, so watching both ends the session promptly either way.
+
+    Polled on the raw descriptor rather than blocking in readline(): a thread
+    parked in a buffered read still holds stdin's lock when the session ends
+    some other way, and the interpreter aborts on that lock at shutdown.
     """
     try:
-        while stream.readline():
+        fd = stream.fileno()
+    except Exception:
+        fd = None
+
+    if fd is None:
+        # No pollable descriptor: fall back to a plain read.
+        try:
+            while stream.readline():
+                pass
+        except OSError:
             pass
-    except OSError:
-        pass
+        writer.close()
+        return
+
+    while not writer.closed:
+        try:
+            ready, _, _ = select.select([fd], [], [], poll)
+        except (OSError, ValueError):
+            break
+        if not ready:
+            continue
+        try:
+            if not os.read(fd, 4096):
+                break  # EOF: the console hung up
+        except OSError:
+            break
     writer.close()
 
 
@@ -162,7 +198,7 @@ def main(argv: list[str] | None = None) -> int:
 
     lock_fd = acquire_lock(CAMERA_LOCK)
     if lock_fd is None:
-        log("another session is already streaming this camera")
+        fail("another session is already streaming this camera")
         return 1
 
     width, height = args.resolution
@@ -173,16 +209,23 @@ def main(argv: list[str] | None = None) -> int:
     try:
         picam2 = open_camera(args.resolution, args.fps, not args.no_rotate)
     except Exception as exc:
-        log(f"could not open the camera: {exc}")
+        fail(f"could not open the camera: {exc}")
         log("a demo may already be holding it")
         os.close(lock_fd)
         return 1
 
-    threading.Thread(target=watch_for_hangup, args=(sys.stdin.buffer, writer),
-                     name="hambot-camera-hangup", daemon=True).start()
+    hangup = threading.Thread(target=watch_for_hangup, args=(sys.stdin.buffer, writer),
+                              name="hambot-camera-hangup", daemon=True)
+    hangup.start()
     try:
         stream(picam2, writer, args.quality)
+    except Exception as exc:
+        fail(f"streaming failed: {exc}")
+        return 1
     finally:
+        # Release the hangup thread before the interpreter tears down stdin.
+        writer.close()
+        hangup.join(timeout=2 * POLL_SECONDS)
         picam2.close()
         os.close(lock_fd)
     log(f"viewer disconnected after {writer.frames} frames, camera released")
