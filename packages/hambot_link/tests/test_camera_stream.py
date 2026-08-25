@@ -39,6 +39,18 @@ class ParseResolutionTests(unittest.TestCase):
 
 
 class FrameWriterTests(unittest.TestCase):
+    def test_it_is_the_io_type_picamera2_demands(self):
+        # picamera2's FileOutput does isinstance(file, io.BufferedIOBase) and
+        # raises "Must pass io.BufferedIOBase" for anything else, however
+        # complete its write/flush pair looks.
+        writer = camera_stream.FrameWriter(io.BytesIO())
+        self.assertIsInstance(writer, io.BufferedIOBase)
+        self.assertTrue(writer.writable())
+
+    def test_write_returns_the_byte_count_like_a_real_stream(self):
+        writer = camera_stream.FrameWriter(io.BytesIO())
+        self.assertEqual(5, writer.write(b"12345"))
+
     def test_frames_are_length_prefixed_and_recoverable(self):
         sink = io.BytesIO()
         writer = camera_stream.FrameWriter(sink)

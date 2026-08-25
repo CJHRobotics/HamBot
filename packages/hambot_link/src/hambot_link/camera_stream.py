@@ -27,6 +27,7 @@ the length and then ``read()`` exactly that many bytes.
 from __future__ import annotations
 
 import argparse
+import io
 import os
 import re
 import select
@@ -69,8 +70,14 @@ def parse_resolution(text: str) -> tuple[int, int]:
     return width, height
 
 
-class FrameWriter:
+class FrameWriter(io.BufferedIOBase):
     """Length-prefixes each encoded frame onto a binary stream.
+
+    Deliberately a real IO object: picamera2's ``FileOutput`` type-checks what
+    it is handed with ``isinstance(file, io.BufferedIOBase)`` and refuses
+    anything else, however complete its ``write``/``flush`` pair looks.
+    Subclassing also means ``closed`` and ``close()`` come from the standard
+    machinery, which the control loop and the hangup watcher both read.
 
     picamera2 hands one complete JPEG to :meth:`write` per frame. A viewer that
     walks away closes the pipe, which surfaces here as a broken-pipe error --
@@ -78,30 +85,31 @@ class FrameWriter:
     """
 
     def __init__(self, stream):
+        super().__init__()
         self._stream = stream
         self._lock = threading.Lock()
         self.frames = 0
-        self.closed = False
 
-    def write(self, frame: bytes) -> None:
+    def writable(self) -> bool:
+        return True
+
+    def write(self, frame) -> int:
         with self._lock:
             if self.closed:
-                return
+                return 0
             try:
                 self._stream.write(b"%s %d\n" % (FRAME_MAGIC, len(frame)))
                 self._stream.write(frame)
                 self._stream.flush()
             except (BrokenPipeError, ValueError, OSError):
-                self.closed = True
-                return
+                # close() only flushes (a no-op here), so this cannot re-enter.
+                self.close()
+                return 0
             self.frames += 1
+            return len(frame)
 
     def flush(self) -> None:
         """No-op: :meth:`write` already flushes each complete frame."""
-
-    def close(self) -> None:
-        with self._lock:
-            self.closed = True
 
 
 def watch_for_hangup(stream, writer: FrameWriter, poll: float = POLL_SECONDS) -> None:
