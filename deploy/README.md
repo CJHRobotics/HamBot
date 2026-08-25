@@ -18,10 +18,12 @@ sudo usermod -aG i2c $USER    # log out/in afterwards
 ## Install
 
 ```bash
-./deploy/install.sh [--force] [target]
+./deploy/install.sh [--force] [--link] [target]
 ```
 
 `--force` deletes and recreates `hambot_venv` before installing. Use it if the venv is corrupted or you want a clean rebuild. Only valid with `hambot`, `both`, or `all` (the targets that create the venv).
+
+`--link` also installs the Vivid console control listener and camera stream alongside whichever target you chose. `all` does **not** include them by default, so a robot only accepts remote control once you opt in.
 
 Targets:
 
@@ -30,12 +32,13 @@ Targets:
 | `hambot` | Creates `hambot_venv`, installs `packages/robot_systems`, adds a `.bashrc` auto-activation snippet, and symlinks `demos/` to `~/Desktop/Demos` (so `git pull` refreshes the shortcut). |
 | `oled` | Installs `packages/hambot_oled` into the shared venv, writes `/etc/systemd/system/hambot_oled.service` and a NetworkManager dispatcher hook. Requires `hambot` first. |
 | `depthai` | Adds the OAK-camera udev rule, `pip install`s `depthai`/`opencv-python`/`simplejpeg` into the shared venv, and clones `depthai-python` next to the monorepo. Requires `hambot` first. |
+| `link` | Installs `packages/hambot_link` into the shared venv and symlinks `hambot-link` and `hambot-camera` into `/usr/local/bin` so the Vivid console can launch them over SSH. No systemd unit — the console starts one process per driving or viewing session, so the motors and camera stay free for demos otherwise. Requires `hambot` first. |
 | `both` | `hambot` + `oled`. |
 | `all` (default) | `hambot` + `oled` + `depthai`. |
 
 ## Individual scripts
 
-Each step can also be run standalone: `setup_hambot.sh`, `setup_oled.sh`, `setup_depthai.sh`. They discover the monorepo location from their own path, so they work wherever you cloned it.
+Each step can also be run standalone: `setup_hambot.sh`, `setup_oled.sh`, `setup_depthai.sh`, `setup_link.sh`. They discover the monorepo location from their own path, so they work wherever you cloned it.
 
 ## Uninstall
 
@@ -43,6 +46,6 @@ Each step can also be run standalone: `setup_hambot.sh`, `setup_oled.sh`, `setup
 ./deploy/uninstall.sh [target]
 ```
 
-Removes the venv, systemd unit, NetworkManager hook, udev rule, and the `.bashrc` snippet. It does **not** delete the monorepo directory.
+Removes the venv, systemd unit, NetworkManager hook, udev rule, the `hambot-link`/`hambot-camera` symlinks, and the `.bashrc` snippet. It does **not** delete the monorepo directory.
 
 Open a new terminal afterwards to pick up the `.bashrc` change.

@@ -1,31 +1,36 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Usage: ./deploy/install.sh [--force] [hambot|oled|depthai|both|all]
+# Usage: ./deploy/install.sh [--force] [--link] [hambot|oled|depthai|link|both|all]
 # Defaults: target=all
 #
 #   hambot  — robot_systems venv + .bashrc auto-activation + demos symlink
 #   oled    — OLED display (installs into the shared venv + systemd + NM hook)
 #   depthai — DepthAI/OAK camera udev rules + pip deps (requires hambot first)
+#   link    — Vivid console control listener (requires hambot first)
 #   both    — hambot + oled
 #   all     — hambot + oled + depthai
 #
 #   --force   Delete and recreate the venv before installing. Use if the venv
 #             is corrupted or you want a clean start.
+#   --link    Also install the console control listener alongside the target.
+#             'all' does not include it by default.
 
 FORCE=0
+LINK=0
 TARGET=""
 for arg in "$@"; do
   case "$arg" in
     --force|-f) FORCE=1 ;;
-    hambot|oled|depthai|both|all) TARGET="$arg" ;;
+    --link|-l)  LINK=1 ;;
+    hambot|oled|depthai|link|both|all) TARGET="$arg" ;;
     -h|--help)
-      sed -n '3,15p' "$0"
+      sed -n '3,17p' "$0"
       exit 0
       ;;
     *)
       echo "Unknown argument: $arg"
-      echo "Usage: $0 [--force] [hambot|oled|depthai|both|all]"
+      echo "Usage: $0 [--force] [--link] [hambot|oled|depthai|link|both|all]"
       exit 1
       ;;
   esac
@@ -79,6 +84,7 @@ case "$TARGET" in
   hambot)  "$SCRIPT_DIR/setup_hambot.sh";  link_demos ;;
   oled)    "$SCRIPT_DIR/setup_oled.sh" ;;
   depthai) "$SCRIPT_DIR/setup_depthai.sh" ;;
+  link)    "$SCRIPT_DIR/setup_link.sh" ;;
   both)
     "$SCRIPT_DIR/setup_hambot.sh"
     "$SCRIPT_DIR/setup_oled.sh"
@@ -91,9 +97,13 @@ case "$TARGET" in
     link_demos
     ;;
   *)
-    echo "Usage: $0 [--force] [hambot|oled|depthai|both|all]"
+    echo "Usage: $0 [--force] [--link] [hambot|oled|depthai|link|both|all]"
     exit 1
     ;;
 esac
+
+if [ "$LINK" = "1" ] && [ "$TARGET" != "link" ]; then
+    "$SCRIPT_DIR/setup_link.sh"
+fi
 
 echo "==> Install complete for target: $TARGET"

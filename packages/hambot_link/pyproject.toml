@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=70", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hambot-link"
+version = "0.1.0"
+description = "Robot-side control listener for the Vivid HamBot Console"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "HamBot Team" }]
+license = { text = "MIT" }
+
+dependencies = [
+    "robot_systems",
+]
+
+[project.scripts]
+hambot-link = "hambot_link.teleop:main"
+hambot-camera = "hambot_link.camera_stream:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["hambot_link*"]

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Usage: ./deploy/uninstall.sh [hambot|oled|depthai|both|all]
+# Usage: ./deploy/uninstall.sh [hambot|oled|depthai|link|both|all]
 # Removes systemd/NM hooks, .bashrc snippet, udev rules, and the shared venv.
 # Does NOT delete the monorepo directory itself.
 TARGET="${1:-both}"
@@ -18,6 +18,8 @@ SNIPPET_END="# <<< HamBot global auto-activate <<<"
 UDEV_RULE="/etc/udev/rules.d/80-movidius.rules"
 OLED_SERVICE="/etc/systemd/system/hambot_oled.service"
 NM_DISPATCHER="/etc/NetworkManager/dispatcher.d/99-hambot-oled"
+LINK_PATH="/usr/local/bin/hambot-link"
+CAM_PATH="/usr/local/bin/hambot-camera"
 
 remove_hambot() {
   if [ -f "$BASHRC" ] && grep -qF "$SNIPPET_TAG" "$BASHRC"; then
@@ -58,6 +60,20 @@ remove_oled() {
   fi
 }
 
+remove_link() {
+  for path in "$LINK_PATH" "$CAM_PATH"; do
+    if [ -L "$path" ] || [ -f "$path" ]; then
+      echo "==> Removing $path"
+      sudo rm -f "$path"
+    fi
+  done
+  if [ -f "$VENV_DIR/bin/activate" ]; then
+    # shellcheck disable=SC1090
+    source "$VENV_DIR/bin/activate"
+    pip uninstall -y hambot-link || true
+  fi
+}
+
 remove_depthai() {
   if [ -f "$UDEV_RULE" ]; then
     sudo rm -f "$UDEV_RULE"
@@ -78,10 +94,11 @@ case "$TARGET" in
   hambot)  remove_hambot ;;
   oled)    remove_oled ;;
   depthai) remove_depthai ;;
+  link)    remove_link ;;
   both)    remove_hambot; remove_oled ;;
-  all)     remove_depthai; remove_oled; remove_hambot ;;
+  all)     remove_link; remove_depthai; remove_oled; remove_hambot ;;
   *)
-    echo "Usage: $0 [hambot|oled|depthai|both|all]"
+    echo "Usage: $0 [hambot|oled|depthai|link|both|all]"
     exit 1
     ;;
 esac
