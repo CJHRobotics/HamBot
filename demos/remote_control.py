@@ -5,11 +5,15 @@ reads stdin directly and does not require a graphical session.
 
 Controls:
     Up / Down     forward / reverse
-    Left / Right  turn in place
-    Up + Left     arc forward-left  (combine held keys)
+    Left / Right  spin in place
     space         stop
     +  /  -       increase / decrease cruise speed
     q             quit
+
+One key drives at a time. A terminal sends no key-release events, so
+sshkeyboard infers them from gaps in the terminal's auto-repeat and tracks a
+single key: pressing a new one releases the previous. Arrow keys therefore
+cannot be combined.
 """
 
 from sshkeyboard import listen_keyboard, stop_listening
@@ -19,14 +23,30 @@ CRUISE_RPM_START = 40
 CRUISE_RPM_MIN = 10
 CRUISE_RPM_MAX = 75
 CRUISE_RPM_STEP = 5
-TURN_RATIO = 0.6  # inside-wheel speed as a fraction of cruise when arcing
+
+# Left at sshkeyboard's defaults deliberately. A terminal emits a held key
+# once, waits about half a second, and only then starts repeating it.
+# RELEASE_AFTER_FIRST_CHAR has to outlast that gap; shortening it makes
+# sshkeyboard synthesize a release before the first repeat arrives, which
+# stutters the motors on every single key press.
+RELEASE_AFTER_FIRST_CHAR = 0.75
+RELEASE_AFTER_REPEAT = 0.05
+
+# Wheel directions per key, as (left, right) multiples of the cruise speed.
+DIRECTIONS = {
+    "up": (1, 1),
+    "down": (-1, -1),
+    "left": (-1, 1),
+    "right": (1, -1),
+}
 
 
 class Teleop:
     def __init__(self):
         self.bot = HamBot(drivetrain=HamBot.DRIVE_2WD)
         self.cruise = CRUISE_RPM_START
-        self.held = set()
+        self.driving = None   # key currently driving, or None
+        self.applied = None   # last (left, right) written to the motors
         self._print_help()
 
     def _print_help(self):
@@ -35,66 +55,60 @@ class Teleop:
             "\n  arrows=drive  space=stop  +/-=speed  q=quit\n"
         )
 
-    def _apply(self):
-        """Recompute wheel speeds from currently-held keys."""
-        fwd = ("up" in self.held) - ("down" in self.held)      # -1, 0, +1
-        turn = ("right" in self.held) - ("left" in self.held)  # -1, 0, +1
+    def _apply(self, left, right):
+        """Write wheel speeds, but only when they actually change.
 
-        if fwd == 0 and turn == 0:
-            self.bot.stop_motors()
+        Anything that re-sends an unchanged speed floods the Build HAT's
+        serial port, and the motors fall behind the keyboard.
+        """
+        if (left, right) == self.applied:
             return
-
-        if fwd == 0:
-            # Spin in place
-            left = self.cruise * turn
-            right = -self.cruise * turn
+        self.applied = (left, right)
+        if left == 0 and right == 0:
+            self.bot.stop_motors()
         else:
-            base = self.cruise * fwd
-            if turn == 0:
-                left = right = base
-            elif turn > 0:  # arc right → slow right wheel
-                left = base
-                right = base * TURN_RATIO
-            else:           # arc left → slow left wheel
-                left = base * TURN_RATIO
-                right = base
+            self.bot.set_left_motor_speed(left)
+            self.bot.set_right_motor_speed(right)
 
-        self.bot.set_left_motor_speed(left)
-        self.bot.set_right_motor_speed(right)
+    def _drive(self, key):
+        left, right = DIRECTIONS[key]
+        self._apply(left * self.cruise, right * self.cruise)
+
+    def stop(self):
+        self.driving = None
+        self._apply(0, 0)
 
     def on_press(self, key):
         if key == "q":
             stop_listening()
             return
         if key == "space":
-            self.held.clear()
-            self.bot.stop_motors()
+            self.stop()
             return
-        if key == "+":
-            self.cruise = min(CRUISE_RPM_MAX, self.cruise + CRUISE_RPM_STEP)
+        if key in ("+", "-"):
+            step = CRUISE_RPM_STEP if key == "+" else -CRUISE_RPM_STEP
+            self.cruise = max(CRUISE_RPM_MIN, min(CRUISE_RPM_MAX, self.cruise + step))
             print(f"  cruise = {self.cruise} rpm")
-            self._apply()
+            if self.driving is not None:
+                self._drive(self.driving)
             return
-        if key == "-":
-            self.cruise = max(CRUISE_RPM_MIN, self.cruise - CRUISE_RPM_STEP)
-            print(f"  cruise = {self.cruise} rpm")
-            self._apply()
-            return
-        if key in ("up", "down", "left", "right"):
-            self.held.add(key)
-            self._apply()
+        if key in DIRECTIONS:
+            self.driving = key
+            self._drive(key)
 
     def on_release(self, key):
-        if key in self.held:
-            self.held.discard(key)
-            self._apply()
+        # Pressing a new key releases the old one, so a release for a key that
+        # is no longer driving has already been superseded.
+        if key == self.driving:
+            self.stop()
 
     def run(self):
         try:
             listen_keyboard(
                 on_press=self.on_press,
                 on_release=self.on_release,
-                delay_second_char=0.05,
+                delay_second_char=RELEASE_AFTER_FIRST_CHAR,
+                delay_other_chars=RELEASE_AFTER_REPEAT,
                 sequential=True,
             )
         finally:

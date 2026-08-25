@@ -18,7 +18,7 @@ That creates `hambot_venv` with `robot_systems` installed and adds a `.bashrc` s
 | --- | --- | --- |
 | `systems_check.py` | Prints IMU / lidar / motor status so you can verify hardware is wired correctly. | IMU, RPLidar, motors |
 | `cameraGUI.py` | GUI viewer for the Pi camera stream. | Pi Camera |
-| `remote_control.py` | Drive the robot with the keyboard over SSH (arrow keys + `+`/`-` for speed). | 2WD drive |
+| `remote_control.py` | Drive the robot with the keyboard over SSH (arrow keys + `+`/`-` for speed). One key at a time. | 2WD drive |
 | `color_shuttle.py` | Drives between a blue and a pink cylinder using camera blob detection and lidar to stop. | 2WD drive, Pi Camera, RPLidar |
 
 Run one:
@@ -27,18 +27,30 @@ Run one:
 python demos/remote_control.py
 ```
 
-Ctrl-C stops the robot cleanly (`robot_systems` installs a SIGINT handler).
+Ctrl-C stops the robot cleanly (`robot_systems` handles SIGINT and SIGTERM).
 
 ## `remote_control.py`
 
 Works over SSH — no graphical session or extra client required. Just `ssh pi@hambot` and run it.
 
-- Arrow keys drive; hold two at once to arc.
+- `Up` / `Down` — forward / reverse.
+- `Left` / `Right` — spin in place.
 - `space` — stop.
 - `+` / `-` — bump cruise speed (10–75 rpm).
 - `q` — quit.
 
-Tune `CRUISE_RPM_START`, `TURN_RATIO`, and the min/max speed constants at the top of the file to match your robot.
+Tune `CRUISE_RPM_START` and the min/max speed constants at the top of the file to match your robot.
+
+**One key drives at a time.** A terminal sends no key-release events, so
+sshkeyboard infers them from gaps in the terminal's auto-repeat and tracks a
+single key — pressing a new one releases the previous. Arrow keys cannot be
+combined, and holding a key relies on your terminal's key repeat being enabled.
+
+The two `RELEASE_AFTER_*` constants are the timeouts sshkeyboard uses to decide
+a key was let go. `RELEASE_AFTER_FIRST_CHAR` has to outlast your terminal's
+initial repeat delay (typically ~0.5 s); setting it lower makes the motors
+stutter on every key press, because the release fires before the first repeat
+arrives.
 
 ## `color_shuttle.py` tuning
 
