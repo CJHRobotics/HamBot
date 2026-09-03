@@ -25,12 +25,14 @@ set -euo pipefail
 #               vX.Y.Z    a specific release, e.g. --ref v0.2.0
 #               <branch>  a feature branch; <sha> a specific commit
 #               current   leave the checkout alone (for development)
-#             Refuses to run if the working tree has uncommitted changes.
+#             Refuses to run if the working tree has uncommitted changes, or if
+#             it is on a feature branch and no --ref was given.
 
 FORCE=0
 LINK=0
 TARGET=""
 REF=""
+REF_EXPLICIT=0
 # argv minus --ref, for the hand-off after a checkout: the ref has already been
 # applied by then, and a release older than this flag would reject it outright.
 PASSTHRU=()
@@ -44,9 +46,10 @@ while [ $# -gt 0 ]; do
         exit 1
       fi
       REF="$2"
+      REF_EXPLICIT=1
       shift
       ;;
-    --ref=*) REF="${1#--ref=}" ;;
+    --ref=*) REF="${1#--ref=}"; REF_EXPLICIT=1 ;;
     hambot|oled|depthai|link|both|all) TARGET="$1"; PASSTHRU+=("$1") ;;
     -h|--help)
       sed -n '/^# Usage:/,/^$/p' "$0"
@@ -87,6 +90,21 @@ checkout_ref() {
         echo "ERROR: $HAMBOT_DIR is not a git clone, so --ref cannot select a version."
         echo "       Re-run with '--ref current' to install what is on disk."
         exit 1
+    fi
+
+    # Defaulting to 'latest' is right for a robot, which sits on main or a
+    # detached release. On a feature branch it would silently abandon the work
+    # being tested and install a release instead, so make the choice explicit.
+    if [ "$REF_EXPLICIT" = "0" ]; then
+        BRANCH="$(git -C "$HAMBOT_DIR" symbolic-ref -q --short HEAD || true)"
+        if [ -n "$BRANCH" ] && [ "$BRANCH" != "main" ]; then
+            echo "ERROR: on branch '$BRANCH' with no --ref given."
+            echo "       The default ('latest') would check out a release and leave this branch."
+            echo "       Say which you want:"
+            echo "         --ref current   install '$BRANCH' as it stands"
+            echo "         --ref latest    install the newest release"
+            exit 1
+        fi
     fi
 
     # A dirty tree means someone is mid-edit. Checking out over that either

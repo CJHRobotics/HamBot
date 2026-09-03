@@ -36,6 +36,12 @@ installs it. Defaults to `latest`.
 It refuses to run if the working tree has uncommitted changes, rather than
 discarding them; commit, stash, or pass `--ref current`.
 
+**Omitting `--ref` is safe.** On a robot — which sits on `main` or detached at a
+release — the default installs `latest`, which is what you want. On a *feature
+branch* the default would silently abandon the branch you were testing, so
+`install.sh` stops and makes you pick `--ref current` (install this branch) or
+`--ref latest` (install the release).
+
 Because `--ref` can replace `install.sh` itself, the script re-runs the newly
 checked-out version to finish the install. Releases older than `v0.2.0` predate
 the flag, so `--ref` is dropped on that hand-off.
