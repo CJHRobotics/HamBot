@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Usage: ./deploy/install.sh [--force] [--link] [--ref REF] [hambot|oled|depthai|link|both|all]
-# Defaults: target=all, ref=latest
+# Defaults: target=all, ref=current
 #
 #   hambot  — robot_systems venv + .bashrc auto-activation + demos symlink
 #   oled    — OLED display (installs into the shared venv + systemd + NM hook)
@@ -17,16 +17,18 @@ set -euo pipefail
 #             does not already include it ('hambot', 'oled', 'depthai', 'both').
 #             Redundant with 'all'. To add only the listener to a robot that is
 #             already set up, use the 'link' target.
-#   --ref     Which version of the monorepo to install. Checked out before
-#             anything else, so this both moves the robot and installs it.
-#               latest    newest vX.Y.Z release tag (default) — the known-good
-#                         fleet version; use this to restore a broken robot
+#   --ref     Check out a version of the monorepo before installing, so one
+#             command both moves the robot and installs it.
+#               current   install whatever is checked out (default) — leaves
+#                         git alone, so callers that already chose a version
+#                         (the lab Ansible playbook) stay the authority
+#               latest    newest vX.Y.Z release tag; this is how you restore a
+#                         robot by hand to the last known-good release
 #               main      latest development state
 #               vX.Y.Z    a specific release, e.g. --ref v0.2.0
 #               <branch>  a feature branch; <sha> a specific commit
-#               current   leave the checkout alone (for development)
-#             Refuses to run if the working tree has uncommitted changes, or if
-#             it is on a feature branch and no --ref was given.
+#             Anything but 'current' refuses to run if the working tree has
+#             uncommitted changes, rather than discarding them.
 
 FORCE=0
 LINK=0
@@ -64,7 +66,7 @@ while [ $# -gt 0 ]; do
   shift
 done
 TARGET="${TARGET:-all}"
-REF="${REF:-latest}"
+REF="${REF:-current}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HAMBOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -82,7 +84,11 @@ APT_PACKAGES=(
 # venv so the rest of the install always matches the code on disk.
 checkout_ref() {
     if [ "$REF" = "current" ]; then
-        echo "==> --ref current: leaving the checkout alone."
+        # Stay silent when this is just the default, so callers that already
+        # chose a version (the lab Ansible playbook) see no new output.
+        if [ "$REF_EXPLICIT" = "1" ]; then
+            echo "==> --ref current: leaving the checkout alone."
+        fi
         return
     fi
 
@@ -90,21 +96,6 @@ checkout_ref() {
         echo "ERROR: $HAMBOT_DIR is not a git clone, so --ref cannot select a version."
         echo "       Re-run with '--ref current' to install what is on disk."
         exit 1
-    fi
-
-    # Defaulting to 'latest' is right for a robot, which sits on main or a
-    # detached release. On a feature branch it would silently abandon the work
-    # being tested and install a release instead, so make the choice explicit.
-    if [ "$REF_EXPLICIT" = "0" ]; then
-        BRANCH="$(git -C "$HAMBOT_DIR" symbolic-ref -q --short HEAD || true)"
-        if [ -n "$BRANCH" ] && [ "$BRANCH" != "main" ]; then
-            echo "ERROR: on branch '$BRANCH' with no --ref given."
-            echo "       The default ('latest') would check out a release and leave this branch."
-            echo "       Say which you want:"
-            echo "         --ref current   install '$BRANCH' as it stands"
-            echo "         --ref latest    install the newest release"
-            exit 1
-        fi
     fi
 
     # A dirty tree means someone is mid-edit. Checking out over that either

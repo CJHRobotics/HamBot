@@ -21,26 +21,26 @@ sudo usermod -aG i2c $USER    # log out/in afterwards
 ./deploy/install.sh [--force] [--link] [--ref REF] [target]
 ```
 
-`--ref` selects which version of the monorepo to install. It is checked out
-before anything else, so one command both moves the robot to a version and
-installs it. Defaults to `latest`.
+`--ref` checks out a version of the monorepo before installing, so one command
+both moves the robot to a version and installs it. Defaults to `current`.
 
 | `--ref` | Installs |
 | --- | --- |
-| `latest` (default) | Newest `vX.Y.Z` release tag — the known-good fleet version. This is how you restore a robot that got broken by a bad `git pull`. |
+| `current` (default) | Whatever is checked out. Touches git not at all. |
+| `latest` | Newest `vX.Y.Z` release tag — this is how you restore a robot by hand to the last known-good release. |
 | `main` | Latest development state. |
 | `v0.2.0` | A specific release. |
 | `<branch>` / `<sha>` | A feature branch or exact commit. |
-| `current` | Leave the checkout alone — use this while developing. |
 
-It refuses to run if the working tree has uncommitted changes, rather than
-discarding them; commit, stash, or pass `--ref current`.
+Anything but `current` refuses to run if the working tree has uncommitted
+changes, rather than discarding them; commit, stash, or drop the flag.
 
-**Omitting `--ref` is safe.** On a robot — which sits on `main` or detached at a
-release — the default installs `latest`, which is what you want. On a *feature
-branch* the default would silently abandon the branch you were testing, so
-`install.sh` stops and makes you pick `--ref current` (install this branch) or
-`--ref latest` (install the release).
+**The default deliberately does nothing.** The lab Ansible playbook
+(`hambots/hambot-installation/`) already checks out `hambot_repo_version`
+before calling this script, and a second opinion here would silently override
+that pin — and would fail the roll-out on robots the playbook intentionally
+leaves with local edits. Version selection belongs to whoever invokes
+`install.sh`; `--ref` exists for the hand-managed case where that is a person.
 
 Because `--ref` can replace `install.sh` itself, the script re-runs the newly
 checked-out version to finish the install. Releases older than `v0.2.0` predate

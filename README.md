@@ -25,7 +25,7 @@ cd ~/HamBot
 
 `all` includes the Vivid console control listener and camera stream. The narrower targets leave it out; add `--link` to include it with one of those, or use the `link` target to add only the listener to a robot that is already set up.
 
-Robots track release tags by default — `install.sh` checks out the newest `vX.Y.Z` before installing. Pass `--ref main` to follow development, `--ref v0.2.0` to pin, or `--ref current` to install the checkout as-is. Restoring a broken robot to the last known-good release is:
+`install.sh` installs whatever is checked out. Pass `--ref` to have it select a version first — `--ref v0.2.0` to pin, `--ref main` to follow development. Restoring a robot by hand to the last known-good release is:
 
 ```bash
 ./deploy/install.sh --ref latest all
@@ -37,8 +37,8 @@ Robots track release tags by default — `install.sh` checks out the newest `vX.
 
 ## Updating a robot
 
-`install.sh` checks out the version it installs, so the repo is left on a
-detached HEAD and `git pull` will not work. Re-run the installer to update:
+Use `--ref`, not `git pull`: once the installer has checked out a version the
+repo sits on a detached HEAD, where `git pull` refuses to run.
 
 ```bash
 ./deploy/install.sh --ref latest all
