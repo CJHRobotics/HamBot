@@ -2,6 +2,10 @@
 
 Monorepo for the HamBot robot platform (Raspberry Pi 4, LEGO Build HAT, BNO055 IMU, RPLidar, Pi Camera, optional OAK camera and SSD1306 OLED).
 
+Active design work — the backend abstraction (`step()`, swappable drive
+backends, the ROS2/OpenCR question) — is specified in [HANDOFF.md](HANDOFF.md).
+Read that before starting on `packages/robot_systems`.
+
 ## Layout
 
 ```
