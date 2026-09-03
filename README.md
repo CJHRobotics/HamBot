@@ -25,6 +25,12 @@ cd ~/HamBot
 
 `all` includes the Vivid console control listener and camera stream. The narrower targets leave it out; add `--link` to include it with one of those, or use the `link` target to add only the listener to a robot that is already set up.
 
+Robots track release tags by default — `install.sh` checks out the newest `vX.Y.Z` before installing. Pass `--ref main` to follow development, `--ref v0.2.0` to pin, or `--ref current` to install the checkout as-is. Restoring a broken robot to the last known-good release is:
+
+```bash
+./deploy/install.sh --ref latest all
+```
+
 `install.sh` handles apt packages, the venv, `.bashrc`, systemd units, and the Desktop symlink — you'll be prompted for `sudo` when it needs it.
 
 `install.sh` creates `~/HamBot/hambot_venv`, installs both packages into it, wires up `.bashrc` auto-activation, and (for `oled`/`all`) writes the systemd + NetworkManager hooks.

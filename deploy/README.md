@@ -18,8 +18,27 @@ sudo usermod -aG i2c $USER    # log out/in afterwards
 ## Install
 
 ```bash
-./deploy/install.sh [--force] [--link] [target]
+./deploy/install.sh [--force] [--link] [--ref REF] [target]
 ```
+
+`--ref` selects which version of the monorepo to install. It is checked out
+before anything else, so one command both moves the robot to a version and
+installs it. Defaults to `latest`.
+
+| `--ref` | Installs |
+| --- | --- |
+| `latest` (default) | Newest `vX.Y.Z` release tag — the known-good fleet version. This is how you restore a robot that got broken by a bad `git pull`. |
+| `main` | Latest development state. |
+| `v0.2.0` | A specific release. |
+| `<branch>` / `<sha>` | A feature branch or exact commit. |
+| `current` | Leave the checkout alone — use this while developing. |
+
+It refuses to run if the working tree has uncommitted changes, rather than
+discarding them; commit, stash, or pass `--ref current`.
+
+Because `--ref` can replace `install.sh` itself, the script re-runs the newly
+checked-out version to finish the install. Releases older than `v0.2.0` predate
+the flag, so `--ref` is dropped on that hand-off.
 
 `--force` deletes and recreates `hambot_venv` before installing. Use it if the venv is corrupted or you want a clean rebuild. Only valid with `hambot`, `both`, or `all` (the targets that create the venv).
 
