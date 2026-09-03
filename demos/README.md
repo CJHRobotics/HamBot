@@ -1,6 +1,6 @@
 # HamBot Demos
 
-Runnable scripts that exercise the `robot_systems` package. This directory is symlinked to `~/Desktop/Demos` by `deploy/install.sh`, so `git pull` on the monorepo refreshes the shortcut automatically.
+Runnable scripts that exercise the `robot_systems` package. This directory is symlinked to `~/Desktop/Demos` by `deploy/install.sh`, so the shortcut always points at whatever version the robot has installed.
 
 ## Prerequisites
 
@@ -11,6 +11,14 @@ Install the monorepo first (see the [top-level README](../README.md)):
 ```
 
 That creates `hambot_venv` with `robot_systems` installed and adds a `.bashrc` snippet so new terminals auto-activate it.
+
+To update these scripts later, re-run the installer rather than `git pull` —
+`install.sh` checks out the version it installs, which leaves the repo on a
+detached HEAD that `git pull` refuses to work with:
+
+```bash
+./deploy/install.sh --ref latest hambot
+```
 
 ## Demos
 

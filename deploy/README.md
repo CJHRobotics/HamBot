@@ -49,19 +49,36 @@ Installing the listener does not by itself expose the robot: `hambot-link` only 
 To add the listener to a robot that is **already** set up, do not use `--link` on its own — with no target that still means `all`, a full reinstall. Use the `link` target, which touches nothing else and installs no apt packages:
 
 ```bash
-git pull && ./deploy/install.sh link
+./deploy/install.sh --ref latest link
 ```
 
 Targets:
 
 | Target | What it does |
 | --- | --- |
-| `hambot` | Creates `hambot_venv`, installs `packages/robot_systems`, adds a `.bashrc` auto-activation snippet, and symlinks `demos/` to `~/Desktop/Demos` (so `git pull` refreshes the shortcut). |
+| `hambot` | Creates `hambot_venv`, installs `packages/robot_systems`, adds a `.bashrc` auto-activation snippet, and symlinks `demos/` to `~/Desktop/Demos` (the shortcut follows whatever version is installed). |
 | `oled` | Installs `packages/hambot_oled` into the shared venv, writes `/etc/systemd/system/hambot_oled.service` and a NetworkManager dispatcher hook. Requires `hambot` first. |
 | `depthai` | Adds the OAK-camera udev rule, `pip install`s `depthai`/`opencv-python`/`simplejpeg` into the shared venv, and clones `depthai-python` next to the monorepo. Requires `hambot` first. |
 | `link` | Installs `packages/hambot_link` into the shared venv and symlinks `hambot-link` and `hambot-camera` into `/usr/local/bin` so the Vivid console can launch them over SSH. No systemd unit — the console starts one process per driving or viewing session, so the motors and camera stay free for demos otherwise. Requires `hambot` first. |
 | `both` | `hambot` + `oled`. |
 | `all` (default) | `hambot` + `oled` + `depthai` + `link`. A full install leaves the robot ready for the Vivid console. |
+
+## Updating a robot
+
+Do **not** use `git pull`. `install.sh` checks out the version it installs, so
+the repo sits on a detached HEAD and `git pull` fails with *"You are not
+currently on a branch."* Re-run the installer instead — it fetches, checks out,
+and reinstalls in one step:
+
+```bash
+./deploy/install.sh --ref latest all
+```
+
+To put a robot back on a branch for development work:
+
+```bash
+git -C ~/HamBot checkout main
+```
 
 ## Individual scripts
 

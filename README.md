@@ -35,6 +35,15 @@ Robots track release tags by default — `install.sh` checks out the newest `vX.
 
 `install.sh` creates `~/HamBot/hambot_venv`, installs both packages into it, wires up `.bashrc` auto-activation, and (for `oled`/`all`) writes the systemd + NetworkManager hooks.
 
+## Updating a robot
+
+`install.sh` checks out the version it installs, so the repo is left on a
+detached HEAD and `git pull` will not work. Re-run the installer to update:
+
+```bash
+./deploy/install.sh --ref latest all
+```
+
 ## Development (any host)
 
 ```bash

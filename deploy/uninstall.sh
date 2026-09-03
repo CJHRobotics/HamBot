@@ -3,7 +3,9 @@ set -euo pipefail
 
 # Usage: ./deploy/uninstall.sh [hambot|oled|depthai|link|both|all]
 # Removes systemd/NM hooks, .bashrc snippet, udev rules, and the shared venv.
-# Does NOT delete the monorepo directory itself.
+# Does NOT delete the monorepo directory itself, and does not move the checkout:
+# install.sh leaves it detached at the installed version, and that is still the
+# record of what was on this robot.
 TARGET="${1:-both}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -104,4 +106,13 @@ case "$TARGET" in
 esac
 
 echo "==> Uninstall complete for target: $TARGET"
+echo "    was installed from: $(git -C "$HAMBOT_DIR" describe --tags --always 2>/dev/null || echo 'unknown')"
 echo "Note: open a NEW terminal to pick up ~/.bashrc changes."
+
+# install.sh checks out a version, so the repo is normally detached here. That
+# is fine for a robot but blocks 'git pull' for anyone about to develop.
+if git -C "$HAMBOT_DIR" rev-parse --git-dir >/dev/null 2>&1 &&
+   ! git -C "$HAMBOT_DIR" symbolic-ref -q HEAD >/dev/null; then
+  echo "Note: the repo is on a detached HEAD (install.sh pinned a version)."
+  echo "      To develop here again: git -C $HAMBOT_DIR checkout main"
+fi
