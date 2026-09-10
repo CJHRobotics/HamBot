@@ -29,12 +29,16 @@ class Camera(ABC):
         Raises:
             ValueError: If camera_type is not recognised.
         """
-        from robot_systems.pi_camera import PiCamera
-        from robot_systems.oak_camera import OakCamera
-
+        # Imported inside the branch that needs it, not both up front. The
+        # OAK-D backend imports depthai at module scope, so importing it
+        # eagerly made Camera.create(CAM_PICAM) raise ModuleNotFoundError on
+        # every robot without depthai installed — and HamBot swallows that
+        # into `camera = None`, so a working Pi camera silently went missing.
         if camera_type == cls.CAM_PICAM:
+            from robot_systems.pi_camera import PiCamera
             return PiCamera(**kwargs)
         elif camera_type == cls.CAM_OAKD:
+            from robot_systems.oak_camera import OakCamera
             return OakCamera(**kwargs)
         else:
             raise ValueError(

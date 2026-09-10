@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "robot_systems"
-version = "0.2.0"
+version = "0.2.1"
 description = "HamBot: Python robotics stack for Raspberry Pi (IMU, LiDAR, camera, LEGO Build HAT)."
 readme = "README.md"
 license = { text = "MIT" }
