@@ -13,7 +13,8 @@ class PiCamera(Camera):
     them as TRUE RGB numpy arrays.
     """
 
-    def __init__(self, resolution=(640, 480), fps=5, rotate_180=True, tolerance=0.05):
+    def __init__(self, resolution=(640, 480), fps=5, rotate_180=True,
+                 **detection_kwargs):
         """Initialise the Pi Camera and start the capture thread.
 
         Args:
@@ -22,10 +23,15 @@ class PiCamera(Camera):
             fps (int): Target capture frame rate. Defaults to 5.
             rotate_180 (bool): Rotate 180° to correct for upside-down mounting.
                                Defaults to True.
-            tolerance (float): Fractional color tolerance for landmark
-                               detection. Defaults to 0.05.
+            **detection_kwargs: Colour-matching settings, forwarded to
+                                Camera.__init__ — hue_tolerance,
+                                min_saturation, min_value, value_tolerance.
+                                Passed through rather than restated here so a
+                                change to the matcher can't leave this
+                                constructor calling a signature that no longer
+                                exists, which is exactly how it broke before.
         """
-        super().__init__(fps=fps, rotate_180=rotate_180, tolerance=tolerance)
+        super().__init__(fps=fps, rotate_180=rotate_180, **detection_kwargs)
 
         self._picam2 = Picamera2()
         self._picam2.configure(

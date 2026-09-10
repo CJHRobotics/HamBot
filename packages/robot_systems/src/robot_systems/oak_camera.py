@@ -15,7 +15,8 @@ class OakCamera(Camera):
     spatial coordinates via the SpatialLocationCalculator node.
     """
 
-    def __init__(self, resolution=(640, 480), fps=5, rotate_180=False, tolerance=0.05):
+    def __init__(self, resolution=(640, 480), fps=5, rotate_180=False,
+                 **detection_kwargs):
         """Initialise the OAK-D Lite pipeline and start the capture thread.
 
         Args:
@@ -24,10 +25,11 @@ class OakCamera(Camera):
             fps (int): Target capture frame rate. Defaults to 5.
             rotate_180 (bool): Rotate 180° to correct for upside-down mounting.
                                Defaults to False.
-            tolerance (float): Fractional color tolerance for landmark
-                               detection. Defaults to 0.05.
+            **detection_kwargs: Colour-matching settings, forwarded to
+                                Camera.__init__ — hue_tolerance,
+                                min_saturation, min_value, value_tolerance.
         """
-        super().__init__(fps=fps, rotate_180=rotate_180, tolerance=tolerance)
+        super().__init__(fps=fps, rotate_180=rotate_180, **detection_kwargs)
 
         self._resolution = resolution
         self._depth_frame      = None
