@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hambot-oled"
-version = "0.1.0"
+version = "0.1.1"
 description = "HamBot OLED network display (Raspberry Pi)"
 readme = "README.md"
 requires-python = ">=3.11"

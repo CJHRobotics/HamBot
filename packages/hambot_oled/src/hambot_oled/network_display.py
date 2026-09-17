@@ -12,6 +12,7 @@ Run once per network state change (NetworkManager dispatcher hook) and once at
 boot (hambot_oled.service). See deploy/setup_oled.sh.
 """
 
+import shlex
 import socket
 import subprocess
 
@@ -69,11 +70,27 @@ def get_client_ssid():
 
 
 def get_ap_ssid(device):
-    """SSID this robot is broadcasting — the fallback AP, named after the host."""
+    """SSID this robot is broadcasting — the fallback AP, named after the host.
+
+    Two steps, because the device only knows which *profile* is active and the
+    profile name is not what goes on the air: every robot's fallback profile is
+    called "hambot-fallback-ap", which told a student staring at the panel
+    nothing about which network to join. The profile's own ssid field is the
+    name actually being broadcast, and for the fallback AP that is this robot's
+    hostname.
+    """
     if not device:
         return ""
     # -g escapes nothing but also emits nothing else, so the value is the line.
-    return run(f"nmcli -g GENERAL.CONNECTION device show {device}")
+    connection = run(f"nmcli -g GENERAL.CONNECTION device show {device}")
+    if not connection:
+        return ""
+    ssid = run(
+        f"nmcli -g 802-11-wireless.ssid connection show {shlex.quote(connection)}"
+    )
+    # A profile with no ssid field isn't wifi at all; its name is still better
+    # than a blank line.
+    return ssid or connection
 
 
 def get_device_ip(device):
