@@ -63,6 +63,7 @@ class PiCamera(Camera):
 
             with self._frame_lock:
                 self._frame_rgb = rgb
+                self._frame_t = time.monotonic()
 
             next_t += period
             sleep = next_t - time.monotonic()

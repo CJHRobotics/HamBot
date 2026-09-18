@@ -124,6 +124,7 @@ class OakCamera(Camera):
                     rgb = rgb[::-1, ::-1]
                 with self._frame_lock:
                     self._frame_rgb = rgb
+                    self._frame_t = time.monotonic()
 
             in_depth = self._depth_queue.tryGet()
             if in_depth is not None:

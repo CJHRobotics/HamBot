@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 import threading
+import time
 import numpy as np
 import cv2
 from robot_systems.landmark import Landmark
@@ -78,6 +79,7 @@ class Camera(ABC):
         self._fps             = max(1, int(fps))
         self._rotate_180      = bool(rotate_180)
         self._frame_rgb       = None
+        self._frame_t         = None   # monotonic capture time of _frame_rgb
         self._frame_lock      = threading.Lock()
         self._target_hsv      = []
         self._hue_tolerance   = int(np.clip(hue_tolerance, 0, 90))
@@ -101,6 +103,35 @@ class Camera(ABC):
     @abstractmethod
     def stop_camera(self):
         """Stop capture and release all hardware resources."""
+
+    def sample_frame(self):
+        """Return (frame, capture_time) under a single lock hold, by reference.
+
+        No copy is taken. A 640x480 RGB frame is roughly 900 KB, and copying
+        one per control tick costs more than reading every other sensor put
+        together — so the tick latches the reference and ``get_frame(copy=True)``
+        pays for a copy only when a caller actually wants one. Treat the
+        returned array as read-only; the capture thread will replace it.
+
+        Returns:
+            tuple: (numpy.ndarray | None, float | None) — the latest RGB frame
+                   and its monotonic capture time, or (None, None) if nothing
+                   has been captured yet.
+        """
+        with self._frame_lock:
+            return self._frame_rgb, self._frame_t
+
+    def frame_age(self):
+        """Seconds since the latest frame was captured.
+
+        Returns:
+            float: Age in seconds, or inf if no frame has been captured yet.
+        """
+        with self._frame_lock:
+            t = self._frame_t
+        if t is None:
+            return float("inf")
+        return max(0.0, time.monotonic() - t)
 
     def find_landmarks(self, min_area=500):
         """Detect regions matching any configured target color (HSV).

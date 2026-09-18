@@ -95,6 +95,7 @@ Each component has its own documentation file with technical details and code ex
 * [Lidar Sensor (RPLidar)](docs/lidar.md)
 * [Camera (Raspberry Pi Camera v2)](docs/camera.md)
 * [Motors (Build HAT)](docs/motors.md)
+* [Control Tick (`bot.step`)](docs/step.md)
 
 ## Class Outline
 

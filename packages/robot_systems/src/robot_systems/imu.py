@@ -19,6 +19,12 @@ class IMU:
         # Cache & sync
         self._heading_deg_from_east: Optional[float] = None
         self._last_update_s: float = 0.0
+        # Monotonic mirror of _last_update_s. The public freshness API
+        # (get_heading's fresh_within, last_update_age) is built on wall-clock
+        # time and stays that way, but snapshot latching needs a clock that
+        # cannot step backwards over an NTP correction and strand a reading in
+        # the future.
+        self._last_update_monotonic_s: Optional[float] = None
         self._lock = threading.Lock()
         self._cv = threading.Condition(self._lock)
 
@@ -78,6 +84,24 @@ class IMU:
         with self._lock:
             return self._heading_deg_from_east
 
+    def sample(self) -> Tuple[Optional[float], Optional[float]]:
+        """
+        Return (heading, reading_time) under a single lock hold.
+
+        Taking both in one acquisition is the point: fetched separately, a
+        poller update landing between the two calls would pair a heading with
+        another reading's timestamp. reading_time is monotonic, so it is
+        comparable with a tick's own clock.
+
+        Returns:
+            tuple: (heading in degrees from East, monotonic reading time), or
+                   (None, None) if no valid sample has been taken yet.
+        """
+        with self._lock:
+            if self._heading_deg_from_east is None:
+                return None, None
+            return self._heading_deg_from_east, self._last_update_monotonic_s
+
     def last_update_age(self) -> float:
         """Seconds since the cache was updated (inf if never)."""
         with self._lock:
@@ -108,6 +132,7 @@ class IMU:
                 with self._cv:
                     self._heading_deg_from_east = heading_from_east
                     self._last_update_s = time.time()
+                    self._last_update_monotonic_s = time.monotonic()
                     # Only start signaling once past warmup; avoids handing out very early junk
                     if self._last_update_s >= self._warmup_until:
                         self._cv.notify_all()

@@ -1,6 +1,6 @@
 # HamBot — Backend Abstraction Handoff
 
-Status: **design finalized, no implementation started.** Baseline is `v0.2.0`.
+Status: **step 1 implemented and green off-hardware; not yet validated on a robot, not yet tagged.** Baseline is `v0.2.0`; step 1 lands on branch `step-control-tick` as `robot_systems` 0.3.0. See §8.
 
 This document exists so a session starting cold can pick up the backend
 abstraction work without re-deriving the design or re-litigating decisions that
@@ -72,9 +72,9 @@ These are not incidental bugs — the redesign is partly motivated by them.
 | Location | Problem |
 |---|---|
 | `robot.py:130` `_read_motor_delta` | Hand-rolled ±180° wrap handling for the Build HAT position sensor. Disappears with any 32-bit multi-turn encoder. |
-| `lidar.py` | `scan_data` slots are never expired. A stale reading from 30 s ago is indistinguishable from a fresh one. |
+| `lidar.py` | ~~`scan_data` slots are never expired. A stale reading from 30 s ago is indistinguishable from a fresh one.~~ **Fixed in step 1** — per-slot monotonic write times and a `stale_after_s` window. |
 | `imu.py` | Threaded poller with cached getters — same staleness class of problem, though it does track `_last_update_s`. |
-| `robot.py` generally | Free-running background threads; no guarantee that two getters called in sequence describe the same instant. |
+| `robot.py` generally | ~~Free-running background threads; no guarantee that two getters called in sequence describe the same instant.~~ **Fixed in step 1** — `step()` latches one coherent `Snapshot` and the getters read from it. |
 
 ---
 
@@ -129,6 +129,10 @@ Requirements:
   snapshot is stale — so intro-week `while True: ... sleep(0.1)` code keeps
   running unchanged.
 - Setters coalesce locally and flush on the next `step()`.
+
+**Decided in step 1 — overrun policy: slip.** Recorded below as originally
+written; the reasoning stands and the implementation follows the
+recommendation. Documented in `packages/robot_systems/docs/step.md`.
 
 **Open decision — overrun policy.** In a simulator `step()` is authoritative and
 cannot be late. On hardware it can. When the loop body takes 200 ms and `dt` is
@@ -323,14 +327,142 @@ classroom, so:
 
 A concrete first milestone, so the next session has an unambiguous target:
 
-- `bot.step(dt)` exists, blocks to the period boundary, and returns falsey on
-  shutdown.
-- Two getters called after one `step()` describe the same instant.
-- Stale lidar slots are expired rather than returned as valid readings.
-- Overrun is detectable by student code, and the policy is documented.
-- **All four demos run unmodified on real hardware**: `systems_check.py`,
-  `remote_control.py`, `color_shuttle.py`, `cameraGUI.py`.
-- Ctrl-C still stops the motors.
+- [x] `bot.step(dt)` exists, blocks to the period boundary, and returns falsey on
+  shutdown. *(covered by `tests/test_robot_step.py::StepContractTests`)*
+- [x] Two getters called after one `step()` describe the same instant.
+  *(`CoherenceTests`)*
+- [x] Stale lidar slots are expired rather than returned as valid readings.
+  *(`tests/test_lidar.py`)*
+- [x] Overrun is detectable by student code, and the policy is documented.
+  *(`LoopHealthTests`, `SlipNotSkipTests`, `docs/step.md`)*
+- [ ] **All four demos run unmodified on real hardware**: `systems_check.py`,
+  `remote_control.py`, `color_shuttle.py`, `cameraGUI.py`. **Still open — needs
+  a robot.**
+- [ ] Ctrl-C still stops the motors. **Still open — needs a robot**, including
+  the new case of Ctrl-C landing during a `step()` wait.
 
 That last pair is the real gate. The existing demos are the compatibility test
 suite; if they need edits, the API changed and the change is wrong.
+
+
+---
+
+## 8. Step 1 — what landed
+
+Branch `step-control-tick`, `robot_systems` 0.3.0. 77 tests pass off-hardware
+(`cd packages/robot_systems && python3 -m unittest discover -s tests`). **The
+hardware gate in §7 has not been run.** Nothing is tagged, so nothing has
+reached a robot.
+
+### New files
+
+| File | What it is |
+|---|---|
+| `src/robot_systems/ticker.py` | `Ticker` (pacing, overrun accounting) and `Snapshot` (one coherent sensor read). No hardware imports, so the timing semantics are testable off-robot. |
+| `docs/step.md` | The tick contract, the slip policy and its cost, the two modes, per-subsystem behaviour, how to choose `dt`. |
+| `tests/fake_hardware.py` | Stubs for `buildhat`, `board`, `adafruit_bno055`, `adafruit_rplidar`, plus minimal `numpy`/`cv2`. Also `FakeClock`, which is what makes the pacing tests deterministic. |
+| `tests/test_ticker.py`, `tests/test_lidar.py`, `tests/test_robot_step.py` | `unittest`, matching the `hambot_link` style. No pytest, no numpy — neither is installed on a stock robot. |
+| `demos/ticked_drive.py` | The one *ticked* demo. The other four are free-running and stay that way; they are the compatibility suite. |
+
+### Changed
+
+- **`robot.py`** — `step(dt)`, `_refresh_snapshot()`, `_ensure_fresh()`,
+  `_command()`/`_flush_commands()`/`_direct()`, `overruns` /
+  `last_overrun_s` / `worst_overrun_s` / `loop_is_keeping_up()`,
+  `get_camera_frame(copy=True)`, `camera_frame_age()`, `snapshot()`.
+  Every `set_*_motor_speed` routes through `_command`; every stop and every
+  timed/rotation/position run routes through `_direct`.
+- **`lidar.py`** — `scan_time` array, `stale_after_s=1.0`,
+  `get_current_scan(max_age_s=-1.0)`, `slot_age()`, `sample()`.
+- **`imu.py`** — `sample()` returning `(heading, reading_time)` under one lock
+  hold, and a monotonic mirror of the update time.
+- **`camera.py` / `pi_camera.py` / `oak_camera.py`** — monotonic capture stamp
+  inside the existing frame lock, `sample_frame()`, `frame_age()`.
+- **`docs/lidar.md`** — the new constructor arg, expiry, and write order.
+
+### Decisions made while implementing
+
+**Overrun policy is slip, not skip.** Per §3.1's recommendation. On a miss the
+next boundary is one full period from *now*, so no cycle is dropped and the
+loop never free-runs through zero-length waits catching up. The cost —
+documented in `docs/step.md` and pinned by a test so nobody later "fixes" it —
+is that after a miss, elapsed time is no longer `ticks * dt`.
+
+**`get_heading()` still delegates verbatim when free-running.** Its
+`fresh_within` / `blocking` / `wait_timeout` arguments have real behaviour that
+a snapshot read cannot reproduce, and §7 makes demo compatibility the hard
+constraint. Ticked, the call is pinned to the snapshot and those arguments no
+longer apply; `bot.snapshot().heading_age()` is how you judge the reading's
+age. This asymmetry is deliberate.
+
+**The 20 Hz position thread stays.** The Build HAT reports position as a
+wrapped ±180° angle, so a continuous total needs a sample twice per half
+revolution (~0.3 s at max RPM). A student ticking at `dt=0.5` would alias the
+wrap and lose whole revolutions if the tick were the only sampler. `step()`
+only latches the total that thread maintains.
+
+**`_direct()` cancels pending speeds, and that is a safety property.** Without
+the cancel, `stop_motors()` is silently undone by the next flush one tick
+later. `StopIsNotUndoneTests` exists specifically to keep that from regressing.
+
+**The camera is off the tick and latched by reference.** It runs at 5 fps, so a
+20 Hz loop sees the same frame ~4 times and `camera_frame_age()` says so.
+Copying a ~900 KB frame per tick would cost more than every other sensor
+combined, so `get_camera_frame()` copies on demand. Keeping the camera off the
+tick also avoids baking in the dependency §4 wants avoided, since the camera is
+what stays on the Pi OS host if the rest ever moves into a container.
+
+**The command lock is re-entrant, and that is a Ctrl-C fix.** Found while
+reviewing the diff, not by a failing test. The SIGINT/SIGTERM handler runs on
+the *main* thread, so a signal arriving while that thread is inside
+`_command()`, `_direct()` or `_flush_commands()` re-enters the lock via
+`stop_motors()`. With a plain `threading.Lock` that deadlocks: Ctrl-C hangs
+with the motors still turning. The windows are only a few bytecodes wide, but
+Python checks for signals between bytecodes, so they are reachable — and this
+is precisely §7's "Ctrl-C still stops the motors" box. `ShutdownReentrancyTests`
+pins it; swapping the `RLock` back to a `Lock` hangs that test.
+
+**`reset_encoders()` re-latches the snapshot.** The encoder getters read the
+snapshot now, so zeroing only the live attributes would leave a reader seeing
+pre-reset totals until the next refresh — a behaviour change from before.
+
+### Still needs a robot
+
+Nothing below has been exercised on hardware. **This is the actual gate; a
+green test run does not substitute for any of it.**
+
+1. **All four demos, unmodified**: `systems_check.py`, `remote_control.py`,
+   `color_shuttle.py`, `cameraGUI.py`. If any needs an edit, the API changed
+   and the change is wrong.
+2. **Ctrl-C stops the motors**, including when it lands during a `step()` wait.
+   `time.sleep` is interruptible on the main thread and the existing handler
+   should still run, but that is reasoning, not evidence. The related
+   re-entrancy deadlock is fixed and tested (see the `RLock` note above); what
+   is untested is the real signal arriving during a real `step()` wait.
+3. **`demos/ticked_drive.py`** — the tick has no on-hardware exercise at all
+   yet. Run it on blocks first.
+4. **Is `stale_after_s=1.0` right for a real unit?** It reasons from a 5–10 Hz
+   spin refreshing visible angles every 100–200 ms. Off-hardware there is no
+   way to tell whether a real scan leaves legitimately-visible slots quiet for
+   longer; if it does, this blanks readings a demo wants and the default must
+   be raised. Watch for obstacles flickering in and out of `scan[i] > 0`.
+   Demo tolerance was checked and is fine: `color_shuttle.py` already filters
+   on `scan[i] > 0`, and `systems_check.py` only prints four slots.
+5. **Overrun counts under real sensor I/O.** A `dt=0.05` loop doing real lidar
+   and IMU reads may overrun in ways stubs cannot show.
+
+### Rollout
+
+Per §6, and none of it done yet: do **not** cut the tag until the hardware run
+passes. Then tag, move `hambot_repo_version` in the sibling `lab-playbooks`
+repo, and roll to `hambot-test` first (`-e hambot_repo_version=main` to try the
+untagged branch). The update path is `./deploy/install.sh --ref <ref> <target>`
+— installed robots sit on a detached HEAD, so `git pull` does not work.
+
+### Noticed, deliberately not fixed
+
+`docs/lidar.md` documents a `frequency` constructor arg and a
+`set_lidar_frequency()` method that do not exist in `lidar.py`. Pre-existing
+drift, out of scope for step 1, and not propagated — the new `stale_after_s`
+and `get_current_scan(max_age_s=...)` entries are accurate. Worth a separate
+cleanup commit.
