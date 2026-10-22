@@ -1,6 +1,6 @@
 # HamBot — Backend Abstraction Handoff
 
-Status: **step 1 implemented; 4 of 6 §7 boxes verified on hardware (hambot-07). Demos + Ctrl-C still open. Not yet tagged.** Baseline is `v0.2.0`; step 1 lands on branch `step-control-tick` as `robot_systems` 0.3.0. See §8.
+Status: **step 1 complete. All six §7 boxes verified on hambot-07; merged to `main` and tagged `v0.3.0`.** Step 2 (extract backend protocols) is next. Baseline is `v0.2.0`; step 1 lands on branch `step-control-tick` as `robot_systems` 0.3.0. See §8.
 
 This document exists so a session starting cold can pick up the backend
 abstraction work without re-deriving the design or re-litigating decisions that
@@ -337,11 +337,11 @@ A concrete first milestone, so the next session has an unambiguous target:
 - [x] Overrun is detectable by student code, and the policy is documented.
   *(`LoopHealthTests`, `SlipNotSkipTests`, `docs/step.md`; **verified on
   hambot-07** — 0 overruns in 200 cycles with lidar + IMU + camera live)*
-- [ ] **All four demos run unmodified on real hardware**: `systems_check.py`,
-  `remote_control.py`, `color_shuttle.py`, `cameraGUI.py`. **Still open — needs
-  a robot.**
-- [ ] Ctrl-C still stops the motors. **Still open — needs a robot**, including
-  the new case of Ctrl-C landing during a `step()` wait.
+- [x] **All four demos run unmodified on real hardware**: `systems_check.py`,
+  `remote_control.py`, `color_shuttle.py`, `cameraGUI.py`. **Verified on
+  hambot-07 — none needed an edit.**
+- [x] Ctrl-C still stops the motors, including during a `step()` wait.
+  **Verified on hambot-07.**
 
 That last pair is the real gate. The existing demos are the compatibility test
 suite; if they need edits, the API changed and the change is wrong.
@@ -566,14 +566,18 @@ LSB — so the sensor *is* fusing and the tick reads it correctly. The
 unresolved, and a demo reporting a heading that looks frozen on a stationary
 robot is explained by calibration, not by `step()`.
 
-### Still open — both need the robot on blocks
+### Compatibility and shutdown — both passed
 
-1. **All four demos, unmodified**: `systems_check.py`, `remote_control.py`,
-   `color_shuttle.py`, `cameraGUI.py`. This is the free-running path, which
-   `ticked_drive.py` does not exercise at all.
-2. **Ctrl-C stops the motors**, including during a `step()` wait. Test with
-   `python demos/ticked_drive.py --dt 0.5`, which keeps the robot asleep inside
-   the wait ~99% of the time.
+**All four demos ran unmodified**: `systems_check.py`, `remote_control.py`,
+`color_shuttle.py`, `cameraGUI.py`. None needed an edit, which is the §7 gate —
+the demos are the compatibility suite, and an edit would have meant the API
+changed. This exercises the **free-running** path, which `ticked_drive.py` does
+not touch at all.
+
+**Ctrl-C stopped the motors**, tested at `dt=0.5` so the signal lands inside the
+`step()` wait rather than in the loop body. This is the path where the `RLock`
+fix matters (see the decisions in §8); the off-hardware test for it hangs if the
+lock is reverted to a plain `Lock`, and the real signal path now confirms it.
 
 `demos/ticked_drive.py` itself ran clean on hambot-07 — all sensors read, no
 overruns — so the ticked path has on-hardware exercise now. Note that
