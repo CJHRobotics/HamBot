@@ -1,6 +1,6 @@
 # HamBot — Backend Abstraction Handoff
 
-Status: **step 1 implemented and green off-hardware; not yet validated on a robot, not yet tagged.** Baseline is `v0.2.0`; step 1 lands on branch `step-control-tick` as `robot_systems` 0.3.0. See §8.
+Status: **step 1 implemented; 4 of 6 §7 boxes verified on hardware (hambot-07). Demos + Ctrl-C still open. Not yet tagged.** Baseline is `v0.2.0`; step 1 lands on branch `step-control-tick` as `robot_systems` 0.3.0. See §8.
 
 This document exists so a session starting cold can pick up the backend
 abstraction work without re-deriving the design or re-litigating decisions that
@@ -328,13 +328,15 @@ classroom, so:
 A concrete first milestone, so the next session has an unambiguous target:
 
 - [x] `bot.step(dt)` exists, blocks to the period boundary, and returns falsey on
-  shutdown. *(covered by `tests/test_robot_step.py::StepContractTests`)*
+  shutdown. *(`StepContractTests`; **verified on hambot-07** — 50.0 ms median
+  period at `dt=0.05`, `step()` returns False after disconnect)*
 - [x] Two getters called after one `step()` describe the same instant.
-  *(`CoherenceTests`)*
+  *(`CoherenceTests`; **verified on hambot-07** — see §9)*
 - [x] Stale lidar slots are expired rather than returned as valid readings.
-  *(`tests/test_lidar.py`)*
+  *(`tests/test_lidar.py`; **verified on hambot-07** — measured distribution in §9)*
 - [x] Overrun is detectable by student code, and the policy is documented.
-  *(`LoopHealthTests`, `SlipNotSkipTests`, `docs/step.md`)*
+  *(`LoopHealthTests`, `SlipNotSkipTests`, `docs/step.md`; **verified on
+  hambot-07** — 0 overruns in 200 cycles with lidar + IMU + camera live)*
 - [ ] **All four demos run unmodified on real hardware**: `systems_check.py`,
   `remote_control.py`, `color_shuttle.py`, `cameraGUI.py`. **Still open — needs
   a robot.**
@@ -466,3 +468,164 @@ untagged branch). The update path is `./deploy/install.sh --ref <ref> <target>`
 drift, out of scope for step 1, and not propagated — the new `stale_after_s`
 and `get_current_scan(max_age_s=...)` entries are accurate. Worth a separate
 cleanup commit.
+
+
+---
+
+## 9. Hardware validation on hambot-07
+
+Run 2026-10-22 at `0fdab75`, `robot_systems` 0.3.0, installed with
+`./deploy/install.sh --ref step-control-tick hambot`. Four of §7's six boxes
+are closed. **The two that remain are the demo compatibility suite and Ctrl-C.**
+
+### Pacing — `dt=0.05` is honest
+
+200 cycles with lidar, IMU and camera all live:
+
+| | |
+|---|---|
+| median period | 50.0 ms |
+| min / max | 48.6 / 51.3 ms |
+| wall clock | 10.05 s (ideal 10.00 s) |
+| overruns | **0 / 200** |
+
+This was the result that could have forced a redesign — if real sensor I/O had
+not fitted in a 50 ms budget, the 20 Hz default and most of `docs/step.md`
+would have needed rethinking. It fits, with margin.
+
+Snapshot ages at the moment of latching: snapshot 1 ms, heading 50 ms (one full
+20 Hz poller period — the expected worst case), scan 3 ms, frame 37 ms. The
+per-sensor `*_t` fields are doing exactly the job they exist for.
+
+### Coherence — and a testing trap worth not repeating
+
+**A stationary robot makes every pinning test vacuous.** The first on-hardware
+check compared `get_heading()` and `get_encoder_readings()` across a 250 ms
+pause and reported `pinned=True` — but the robot was still, so both values were
+constants (`90.0` and `[0.0, 0.0]`) and the check would have passed with no
+pinning implemented at all. It proved nothing.
+
+The decisive test moves the hardware underneath while *not* calling `step()`:
+
+```
+live attribute   -0.0000 -> 8.2554 rad   (left wheel turned by hand)
+getter, no step()  -0.0000 -> -0.0000     <- pinned
+after one step()            8.2554        <- released, exact
+```
+
+That is the coherence guarantee on real hardware. Any future re-test of pinning
+must perturb the sensor during the pinned window, or it is measuring nothing.
+
+### Lidar — `stale_after_s=1.0` is correct, now measured rather than reasoned
+
+| | |
+|---|---|
+| slots ever measured | 155 / 360 |
+| median slot age | **138 ms** |
+| p90 slot age | 1209 ms |
+| max slot age | 11378 ms |
+| positive readings, raw | 155 / 360 |
+| survive the 1.0 s window | 134 / 360 |
+| **blanked by expiry** | **21 / 360** |
+| front window (160-200) | 14 / 41 valid, nearest 5538 mm |
+| front validity flips / 60 ticks | 12 |
+
+The 138 ms median is the 5-10 Hz spin refreshing visible angles every 100-200 ms
+— the exact premise the 1.0 s default was picked from, now confirmed.
+
+**The distribution is bimodal and 1.0 s separates it cleanly.** A tight cluster
+near 138 ms (genuinely visible angles) and a long tail to 11.4 s. A slot last
+touched 11 s ago is not a slowly-refreshing slot; it is one return off an
+oblique surface, or something that moved through and left. Serving that as a
+live distance is the §2 bug. Blanking it is the correct behaviour, not a false
+positive.
+
+**Only 21 of 360 slots change behaviour at all.** The 205 never-measured slots
+already read `-1` before this branch (initialized to `INVALID_READING` and never
+written), so there is no regression there — the adafruit driver simply does not
+report angles it got no return from. 12 flips across 41 front slots over 3 s is
+stable, not flickering.
+
+**Decision: the default stays at 1.0 s.** Raise it only if a demo is observed
+losing a reading it needs.
+
+### Camera — behaves as designed
+
+6 distinct frame objects across 20 ticks at 20 Hz, with ages cycling 0.04 ->
+0.19 s and resetting. That is one 5 fps frame being seen roughly four times
+with `camera_frame_age()` reporting it truthfully, which is the whole reason the
+camera is off the tick.
+
+### Noticed, not this branch's problem
+
+`bot.imu.is_calibrated()` returns False on hambot-07, and a stationary heading
+reads a constant (`90.0`, i.e. yaw 0 mapped through `(-yaw + 90) % 360`).
+Rotating the robot by hand moved it to 140.3125 — a clean 1/16-degree BNO055
+LSB — so the sensor *is* fusing and the tick reads it correctly. The
+`# TODO: verify it works` on the heading conversion in `imu.py` is still
+unresolved, and a demo reporting a heading that looks frozen on a stationary
+robot is explained by calibration, not by `step()`.
+
+### Still open — both need the robot on blocks
+
+1. **All four demos, unmodified**: `systems_check.py`, `remote_control.py`,
+   `color_shuttle.py`, `cameraGUI.py`. This is the free-running path, which
+   `ticked_drive.py` does not exercise at all.
+2. **Ctrl-C stops the motors**, including during a `step()` wait. Test with
+   `python demos/ticked_drive.py --dt 0.5`, which keeps the robot asleep inside
+   the wait ~99% of the time.
+
+`demos/ticked_drive.py` itself ran clean on hambot-07 — all sensors read, no
+overruns — so the ticked path has on-hardware exercise now. Note that
+`install.sh --ref <branch>` is what actually moved the robot; the Ansible git
+task did not (see §10).
+
+---
+
+## 10. Open problem: untagged rollouts do not reach a robot
+
+Getting `0fdab75` onto hambot-07 took three attempts, and **the Ansible path
+never worked**. This is unresolved and will block the next untagged rollout.
+
+What was tried, in order:
+
+1. **Lab management portal**, "HamBot repo version" = `step-control-tick`.
+   Robot stayed at `8f2a217`. Suspected cause: the portal may validate that
+   field against existing release tags and silently fall back to the group pin.
+   `step-control-tick` is a *branch*; there is no tag for this work yet.
+2. **CLI**, `-e hambot_repo_version=step-control-tick -e hambot_force_reinstall=true`.
+   Robot still at `8f2a217`. Not diagnosed — the git task's actual output was
+   never captured. `-e` is Ansible's highest precedence, so the group pin should
+   not have won; something in the `ansible.builtin.git` task is not checking out
+   a branch on a detached-HEAD clone.
+3. **`./deploy/install.sh --ref step-control-tick hambot`**, run on the robot.
+   Worked first try.
+
+Why the symptom was invisible: `v0.2.3` points at `8f2a217`, which is *exactly*
+`main`'s tip. So a fall-back to the group pin finds the repo already at that
+commit, the git task reports **ok** rather than **changed**, and the playbook
+then skips `install.sh` entirely — that task is gated on
+`_hambot_git is changed`. The play looks like a clean success while having done
+nothing.
+
+Compounding it: `setup_hambot.sh:21` is a **non-editable** `pip install`, so
+even a successful git checkout with a skipped `install.sh` leaves the venv on
+the old `robot_systems`. Version and commit must both be checked after any
+rollout:
+
+```bash
+cd /home/hambot/HamBot && git rev-parse --short HEAD; \
+  ./hambot_venv/bin/pip show robot_systems | head -2
+```
+
+**To diagnose next time**, capture the git task's output and whether
+`origin/<branch>` reached the robot's remotes:
+
+```bash
+sudo ansible hambot-07 -m shell -a 'cd /home/hambot/HamBot; git branch -r | grep -i step || echo "branch NOT fetched"'
+```
+
+If the branch is absent, the fetch is the problem; if present while HEAD has not
+moved, the checkout is. Worth fixing properly — `install.sh --ref` is a fine
+manual path but the playbook owning version selection (§6) is the whole point of
+the Ansible layer.
