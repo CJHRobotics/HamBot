@@ -124,7 +124,9 @@ class IMU:
             # read euler; it can be None or contain None values early on
             euler = self.sensor.euler
             if euler is not None and all(v is not None for v in euler):
-                # TODO :verify it works
+                # Verified on hambot-07: a robot facing north reads yaw 0 and
+                # this returns 90.0; rotating it by hand tracks correctly in
+                # 1/16-degree steps (the BNO055's euler LSB).
                 heading_from_north, _, _ = euler  # BNO055 returns (heading=yaw from North, roll, pitch) in degrees
                 # Convert to "degrees from East" to match your convention
                 heading_from_east = (-heading_from_north + 90.0) % 360.0

@@ -15,6 +15,7 @@ box drawn on top (requires a display / X forwarding).
 """
 
 import argparse
+import sys
 import time
 
 from robot_systems.robot import HamBot
@@ -176,6 +177,15 @@ def main():
                  lidar_enabled=True,
                  camera_enabled=True,
                  camera_type=Camera.CAM_PICAM)
+
+    # HamBot swallows any camera failure into camera = None, so without this
+    # the demo runs on to set_target_colors and dies on a NoneType attribute
+    # error that says nothing about the real cause printed further up.
+    if bot.camera is None:
+        bot.disconnect_robot()
+        sys.exit("No camera — see the camera initialization error above. "
+                 "A stale robot_systems install is the usual cause; "
+                 "reinstall with ./deploy/install.sh --ref latest")
 
     # Let sensors warm up
     time.sleep(2.0)

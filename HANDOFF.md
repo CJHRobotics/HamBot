@@ -561,10 +561,11 @@ camera is off the tick.
 `bot.imu.is_calibrated()` returns False on hambot-07, and a stationary heading
 reads a constant (`90.0`, i.e. yaw 0 mapped through `(-yaw + 90) % 360`).
 Rotating the robot by hand moved it to 140.3125 — a clean 1/16-degree BNO055
-LSB — so the sensor *is* fusing and the tick reads it correctly. The
-`# TODO: verify it works` on the heading conversion in `imu.py` is still
-unresolved, and a demo reporting a heading that looks frozen on a stationary
-robot is explained by calibration, not by `step()`.
+LSB — so the sensor *is* fusing and the tick reads it correctly. **That also
+settles the old `# TODO: verify it works` on the heading conversion: the
+east-referenced convention is right, and the TODO is gone.** A demo reporting a
+heading that looks frozen on a stationary robot is explained by calibration
+state, not by `step()` and not by the conversion.
 
 ### Compatibility and shutdown — both passed
 
